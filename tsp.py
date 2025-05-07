@@ -15,7 +15,10 @@ def advanced_join_algorithm(
         chromosome,
         waypoints_distances,
         drone_speed_ratio=2.0,
-        drone_range=float('inf')
+        drone_range=float('inf'),
+        s_R=30,  # drone takeoff time
+        s_L=30,  # drone landing time
+        epsilon=900,  # time limit for the entire LL operation for a drone in seconds (eg 15min)
 ):
 
     INF = float('inf')
@@ -92,9 +95,9 @@ def advanced_join_algorithm(
                     node_launch == node_drone,
                     node_land == node_drone,
                     node_launch == node_land,
-                    #euclidean_distance(node_land, node_drone) < 1e-6,
-                    #euclidean_distance(node_launch, node_drone) < 1e-6,
-                    #euclidean_distance(node_launch, node_land) < 1e-6
+                    euclidean_distance(node_land, node_drone) < 1e-6,
+                    euclidean_distance(node_launch, node_drone) < 1e-6,
+                    euclidean_distance(node_launch, node_land) < 1e-6
                 ]):
                     continue
 
@@ -107,15 +110,25 @@ def advanced_join_algorithm(
 
                 t_truck = truck_time.get((i_, k_), INF) / truck_speed  # in seconds ?
                 t_drone = drone_flight_dist / (drone_speed_ratio * truck_speed)  # in seconds ?
-                segtime = max(t_drone, t_truck)  # max time in seconds ?
+
+                # FSTSP
+                sigma_k = 1 if choice[k_] and choice[k_][0] == "LL" else 0
+                feasible = (
+                        (t_truck + s_R + sigma_k * s_L <= epsilon) and
+                        (t_drone + s_R <= epsilon)
+                )
+                if not feasible:
+                    continue
+                segtime = max(t_truck + sigma_k * s_L + s_R, t_drone + s_R)
+                # segtime = max(t_drone, t_truck)
                 val = segtime + C[k_]
 
                 if val < best_val_ll and all([node_land != node_drone,
                                               node_launch != node_land,
                                               node_launch != node_drone,
-                                              #euclidean_distance(node_land, node_drone) >= 1e-6,
-                                              #euclidean_distance(node_launch, node_land) >= 1e-6,
-                                              #euclidean_distance(node_launch, node_drone) >= 1e-6
+                                              euclidean_distance(node_land, node_drone) >= 1e-6,
+                                              euclidean_distance(node_launch, node_land) >= 1e-6,
+                                              euclidean_distance(node_launch, node_drone) >= 1e-6
                                               ]):
                     best_val_ll, best_k_ll, best_d_ll = val, k_, d_i
 
@@ -155,10 +168,10 @@ def advanced_join_algorithm(
                     map(float, chromosome[0][0]))
                 drone_node = tuple(map(float, chromosome[d_idx][0]))
 
-                #if euclidean_distance(land_node, drone_node) >= 1e-6 and \
-                #        euclidean_distance(launch_node, land_node) >= 1e-6 and \
-                #        euclidean_distance(launch_node, drone_node) >= 1e-6 and \
-                if drone_node != land_node and \
+                if euclidean_distance(land_node, drone_node) >= 1e-6 and \
+                        euclidean_distance(launch_node, land_node) >= 1e-6 and \
+                        euclidean_distance(launch_node, drone_node) >= 1e-6 and \
+                        drone_node != land_node and \
                         drone_node != launch_node and \
                         land_node != launch_node:
                     # flight_map[d_idx] = (i_idx, k_)
@@ -1131,9 +1144,8 @@ if __name__ == "__main__":
     places = [(50.127177521308965, 8.667720581286744),  # Goethe Uni Westend
               (50.173571700260545, 8.630701738961589),  # Goethe Uni Riedberg
               (50.11988130693042, 8.652139750598623),  # Goethe Uni Bockenheim
-              (50.120916890032426, 8.653264939620993),  # Goethe Uni Bibliothek
-              (50.0967062213481, 8.661503898480328)  # Goethe Klinikum
-               ]
+              (50.0967062213481, 8.661503898480328),  # Goethe Klinikum
+              ]
 
     generations = 5000  # number of iterations
     population_size = 100  # number of agents
