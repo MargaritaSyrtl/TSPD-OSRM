@@ -692,32 +692,48 @@ def type_aware_order_crossover(p1: tuple, p2: tuple, all_nodes: set | None = Non
     off[0] = depot
 
     # copy segment
+    # TOX1
     if variant == "TOX1":
         chosen_type = random.choice(("truck", "drone"))
         for i in range(cut1, cut2):
+            # only nodes of the selected type are copied from the first parent p1 to the same positions of the child off
             if p1[i][1] == chosen_type:
                 off[i] = p1[i]
+    # TOX2
     else:
+        # copy the segment [cut1:cut2] from the first parent in off
         off[cut1:cut2] = p1[cut1:cut2]
-
+    # collect the coordinates of all nodes already placed in off
     used = {g[0] for g in off if g}
     src = [g for g in p2[1:] if g[0] not in used] + \
           [g for g in p1[1:] if g[0] not in used] + \
           [(coord, 'truck') for coord in all_nodes if coord not in used]
 
     idx = 0
+    p2_type = {g[0]: g[1] for g in p2}
+    # all cells that remain None are filled with elements from the src list
     for i in range(1, n):
         if off[i] is None:
-            off[i] = src[idx]
+            coord = src[idx][0]
+            typ = p2_type.get(coord, src[idx][1])  # type from P2
+            off[i] = (coord, typ)
             idx += 1
 
     if variant == "TOX2":
+        p1_type = {g[0]: g[1] for g in p1}
         p2_type = {g[0]: g[1] for g in p2}
         for i in range(cut1, cut2):
+            # type is changed to the one that the corresponding node in p2 had
             coord = off[i][0]
-            off[i] = (coord, p2_type.get(coord, off[i][1]))
+            # within segment [cut1:cut2]
+            if cut1 <= i < cut2:
+                # type from P2
+                off[i] = (coord, p2_type.get(coord, off[i][1]))
+            # outside segment [cut1:cut2]
+            else:
+                # type from P1
+                off[i] = (coord, p1_type.get(coord, off[i][1]))
     return tuple(off)
-
 
 def euclidean_distance(coord1, coord2):
     """
