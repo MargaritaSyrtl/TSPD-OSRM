@@ -1,0 +1,13 @@
+certifi==2024.12.14
+charset-normalizer==3.4.1
+folium==0.19.4
+idna==3.10
+loguru==0.7.3
+matplotlib==3.10.0
+requests==2.32.3
+pandas==2.2.3
+pdfkit
+python_tsp==0.5.0
+scipy==1.15.1
+selenium==4.28.1
+urllib3==2.3.0
