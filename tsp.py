@@ -13,7 +13,6 @@ from copy import deepcopy
 
 def advanced_join_algorithm(
         chromosome,
-        waypoints_distances,
         drone_speed_ratio=2.0,
         drone_range=float('inf'),
         s_R=30,  # drone takeoff time
@@ -41,19 +40,23 @@ def advanced_join_algorithm(
 
     truck_speed = 10.0  # m/s todo adjust better
 
-    truck_time = {}
+    truck_dist = {}
     for i_ in range(m):  # running through all the track nodes
         for k_ in range(i_ + 1, m + 1):
             if k_ == m:  # depot definition
                 depot_coord = chromosome[0][0]
                 # definition of distances between nodes
-                dist = waypoints_distances.get(frozenset([truck_coords[i_], depot_coord]), INF)  # in meters ?
-                truck_time[(i_, k_)] = dist  # in meters ?
+                dist = euclidean_distance(truck_coords[i_], depot_coord)
+                # real traffic
+                # dist = waypoints_distances.get(frozenset([truck_coords[i_], depot_coord]), INF)  # in meters ?
+                truck_dist[(i_, k_)] = dist  # in meters
             else:
                 coord_i = truck_coords[i_]
                 coord_k = truck_coords[k_]
-                dist = 0.0 if coord_i == coord_k else waypoints_distances.get(frozenset([coord_i, coord_k]), INF)
-                truck_time[(i_, k_)] = dist
+                # real traffic
+                # dist = 0.0 if coord_i == coord_k else waypoints_distances.get(frozenset([coord_i, coord_k]), INF)
+                dist = 0.0 if coord_i == coord_k else euclidean_distance(coord_i, coord_k)
+                truck_dist[(i_, k_)] = dist
 
     def find_all_drones_between(i_chromosome, k_chromosome):
         """ Searches all nodes between i and k """
@@ -67,7 +70,8 @@ def advanced_join_algorithm(
         best_val_mt = INF
         best_k_mt = None
         for k_ in range(i_ + 1, m + 1):
-            cost = truck_time.get((i_, k_), INF) + C[k_]
+            cost = truck_dist.get((i_, k_), INF) / truck_speed + C[k_]  # in sec
+            logger.debug(f"Truck time: {cost}")
             if cost < best_val_mt:
                 best_val_mt = cost
                 best_k_mt = k_
@@ -93,11 +97,8 @@ def advanced_join_algorithm(
                     node_land is None,
                     node_launch is None,
                     node_launch == node_drone,
-                    node_land == node_drone,
-                    node_launch == node_land,
-                    euclidean_distance(node_land, node_drone) < 1e-6,
-                    euclidean_distance(node_launch, node_drone) < 1e-6,
-                    euclidean_distance(node_launch, node_land) < 1e-6
+                    node_land == node_drone
+                    # drone can't launch and land from/on drone node
                 ]):
                     continue
 
@@ -108,9 +109,10 @@ def advanced_join_algorithm(
                 if drone_flight_dist > drone_range:
                     continue
 
-                t_truck = truck_time.get((i_, k_), INF) / truck_speed  # in seconds ?
-                t_drone = drone_flight_dist / (drone_speed_ratio * truck_speed)  # in seconds ?
-
+                t_truck = truck_dist.get((i_, k_), INF) / truck_speed  # in seconds
+                t_drone = drone_flight_dist / (drone_speed_ratio * truck_speed)  # in seconds
+                logger.debug(f"Drone time: {t_drone}")
+                logger.debug(f"Truck time: {t_truck}")
                 # FSTSP
                 sigma_k = 1 if choice[k_] and choice[k_][0] == "LL" else 0
                 feasible = (
@@ -123,13 +125,7 @@ def advanced_join_algorithm(
                 # segtime = max(t_drone, t_truck)
                 val = segtime + C[k_]
 
-                if val < best_val_ll and all([node_land != node_drone,
-                                              node_launch != node_land,
-                                              node_launch != node_drone,
-                                              euclidean_distance(node_land, node_drone) >= 1e-6,
-                                              euclidean_distance(node_launch, node_land) >= 1e-6,
-                                              euclidean_distance(node_launch, node_drone) >= 1e-6
-                                              ]):
+                if val < best_val_ll and all([node_land != node_drone, node_launch != node_drone]):  # drone can't launch and land from/on drone node
                     best_val_ll, best_k_ll, best_d_ll = val, k_, d_i
 
         if best_k_ll is not None and best_d_ll is not None:
@@ -168,13 +164,10 @@ def advanced_join_algorithm(
                     map(float, chromosome[0][0]))
                 drone_node = tuple(map(float, chromosome[d_idx][0]))
 
-                if euclidean_distance(land_node, drone_node) >= 1e-6 and \
-                        euclidean_distance(launch_node, land_node) >= 1e-6 and \
-                        euclidean_distance(launch_node, drone_node) >= 1e-6 and \
-                        drone_node != land_node and \
-                        drone_node != launch_node and \
-                        land_node != launch_node:
-                    # flight_map[d_idx] = (i_idx, k_)
+                #if euclidean_distance(land_node, drone_node) >= 1e-6 and \
+                #        euclidean_distance(launch_node, land_node) >= 1e-6 and \
+                #        euclidean_distance(launch_node, drone_node) >= 1e-6 and \
+                if drone_node != land_node and drone_node != launch_node:   # drone can't launch and land from/on drone node
                     flight_map[d_idx] = (truck_indices[i_idx],  # launch – index in chromosome
                                          truck_indices[k_] if k_ < m else len(chromosome))  # land
 
@@ -185,9 +178,9 @@ def advanced_join_algorithm(
     return makespan, flight_map
 
 
-def compute_fitness(chromosome, waypoints_distances, drone_speed_ratio=2.0, drone_range=float('inf'), w1=2.0, w2=2.0):
+def compute_fitness(chromosome, drone_speed_ratio=2.0, drone_range=float('inf'), w1=2.0, w2=2.0):
     try:
-        makespan, flight_map = advanced_join_algorithm(chromosome, waypoints_distances, drone_speed_ratio)
+        makespan, flight_map = advanced_join_algorithm(chromosome, drone_speed_ratio)
 
         # check type 1
         type1_viol = 0
@@ -251,9 +244,9 @@ def compute_fitness(chromosome, waypoints_distances, drone_speed_ratio=2.0, dron
         return float('inf'), float('inf'), None, "type2"
 
 
-def local_search(chromosome, waypoints_distances, drone_speed_ratio=2.0, max_attempts=20):
+def local_search(chromosome, drone_speed_ratio=2.0, max_attempts=20):
     best_chrom = chromosome
-    fitness_value, best_fit, best_flights, feasibility_status = compute_fitness(best_chrom, waypoints_distances, drone_speed_ratio)
+    fitness_value, best_fit, best_flights, feasibility_status = compute_fitness(best_chrom, drone_speed_ratio)
 
     attempts = 0
     improved = True
@@ -287,7 +280,7 @@ def local_search(chromosome, waypoints_distances, drone_speed_ratio=2.0, max_att
         improved = False
         move = random.choice(local_moves)
         new_chrom = move(best_chrom)
-        new_fitness, new_fit, new_flights, new_status = compute_fitness(new_chrom, waypoints_distances,
+        new_fitness, new_fit, new_flights, new_status = compute_fitness(new_chrom,
                                                                         drone_speed_ratio)
         if new_fit < best_fit:
             best_fit = new_fit
@@ -839,28 +832,21 @@ def shuffle_mutation(agent_genome):
 
     return tuple(g_list)
 
-def run_genetic(dm, places, generations, population_size):
+def run_genetic(places, generations, population_size):
     """
     Requests data for GA from DMRequest and pass it to HGA-TAC implementation.
     """
-    waypoints_data_ga = dm.get_response_data_ga()
-    if waypoints_data_ga:
-        waypoints_distances = waypoints_data_ga['waypoints_distances']
-        if waypoints_distances:
-            return waypoints_data_ga, run_genetic_algorithm(
+    #waypoints_data_ga = dm.get_response_data_ga()
+    #if waypoints_data_ga:
+    #    waypoints_distances = waypoints_data_ga['waypoints_distances']
+    #    if waypoints_distances:
+    return run_genetic_algorithm(
                 places=places,
-                waypoints_distances=waypoints_distances,
                 generations=generations,
-                population_size=population_size
-            )
-        else:
-            logger.error("No valid routes found for GA version")
-            return None, None
-    else:
-        raise Exception("Request did not return data for GA version")
+                population_size=population_size)
 
 
-def tournament_selection(population, waypoints_distances, tournament_size=3,
+def tournament_selection(population, tournament_size=3,
                          drone_speed_ratio=2.0, drone_range=float('inf'),
                          w1=2.0, w2=2.0, reference_length=None):
     """
@@ -877,7 +863,7 @@ def tournament_selection(population, waypoints_distances, tournament_size=3,
     best_fitness = float('inf')
 
     for agent in competitors:
-        fitness, _, _, _ = compute_fitness(agent, waypoints_distances, drone_speed_ratio, drone_range, w1, w2)
+        fitness, _, _, _ = compute_fitness(agent, drone_speed_ratio, drone_range, w1, w2)
         if fitness < best_fitness:
             best = agent
             best_fitness = fitness
@@ -888,7 +874,7 @@ def tournament_selection(population, waypoints_distances, tournament_size=3,
     return best
 
 
-def sort_population_by_fitness(population, waypoints_distances, drone_speed_ratio=2.0, drone_range=float('inf'), w1=2.0, w2=2.0):
+def sort_population_by_fitness(population, drone_speed_ratio=2.0, drone_range=float('inf'), w1=2.0, w2=2.0):
     """
     Calculates fitness for each agent.
     Returns a list of agents, sorted by fitness (from smallest to largest).
@@ -897,7 +883,7 @@ def sort_population_by_fitness(population, waypoints_distances, drone_speed_rati
     """
     pop_with_fit = []
     for agent in population:
-        fit_val, _, _, _ = compute_fitness(agent, waypoints_distances, drone_speed_ratio, drone_range, w1, w2)
+        fit_val, _, _, _ = compute_fitness(agent, drone_speed_ratio, drone_range, w1, w2)
         pop_with_fit.append((fit_val, agent))
     # sort via fit_val
     pop_with_fit.sort(key=lambda x: x[0])
@@ -906,7 +892,7 @@ def sort_population_by_fitness(population, waypoints_distances, drone_speed_rati
     return sorted_agents
 
 
-def run_genetic_algorithm(places, waypoints_distances, generations, population_size, drone_speed_ratio=2.0, drone_range=float('inf'), escape_trigger=10):
+def run_genetic_algorithm(places, generations, population_size, drone_speed_ratio=2.0, drone_range=float('inf'), escape_trigger=10):
     # init penalties
     w1 = 2.0
     w2 = 2.0
@@ -917,7 +903,7 @@ def run_genetic_algorithm(places, waypoints_distances, generations, population_s
 
     initial_tsp_agent = tuple(generate_initial_tsp_solution_lkh(places))
 
-    fval, mspan, fl_map, st = compute_fitness(initial_tsp_agent, waypoints_distances, drone_speed_ratio, drone_range, w1, w2)
+    fval, mspan, fl_map, st = compute_fitness(initial_tsp_agent, drone_speed_ratio, drone_range, w1, w2)
     if st == 'feasible':
         pop_feas.append(initial_tsp_agent)
     elif st == 'type1':
@@ -930,7 +916,7 @@ def run_genetic_algorithm(places, waypoints_distances, generations, population_s
             agent = generate_agent_from_tsp_base(initial_tsp_agent)
             logger.debug(agent)
             fval, mspan, fl_map, st = compute_fitness(
-                agent, waypoints_distances, drone_speed_ratio, drone_range, w1, w2
+                agent, drone_speed_ratio, drone_range, w1, w2
             )
             if st == 'feasible':
                 pop_feas.append(agent)
@@ -959,7 +945,7 @@ def run_genetic_algorithm(places, waypoints_distances, generations, population_s
             break
 
         # sort the entire population
-        sorted_pop = sort_population_by_fitness(all_pop, waypoints_distances, drone_speed_ratio, drone_range, w1, w2)
+        sorted_pop = sort_population_by_fitness(all_pop, drone_speed_ratio, drone_range, w1, w2)
         # logger.debug(f"sorted population: {sorted_pop}")
 
         new_population = []
@@ -970,9 +956,9 @@ def run_genetic_algorithm(places, waypoints_distances, generations, population_s
         for _ in range(num_offsprings):
             ref_length = len(initial_tsp_agent)
 
-            p1 = tournament_selection(sorted_pop, waypoints_distances, 3, drone_speed_ratio, drone_range, w1, w2,
+            p1 = tournament_selection(sorted_pop, 3, drone_speed_ratio, drone_range, w1, w2,
                                       reference_length=ref_length)
-            p2 = tournament_selection(sorted_pop, waypoints_distances, 3, drone_speed_ratio, drone_range, w1, w2,
+            p2 = tournament_selection(sorted_pop, 3, drone_speed_ratio, drone_range, w1, w2,
                                       reference_length=ref_length)
 
             #p1 = tournament_selection(sorted_pop, waypoints_distances, 3, drone_speed_ratio, drone_range, w1, w2)
@@ -1005,13 +991,13 @@ def run_genetic_algorithm(places, waypoints_distances, generations, population_s
                 repaired = repair_consecutive_drones(mut_child)
                 logger.debug(repaired)
                 # local search
-                improved_child, improved_fit, improved_flights = local_search(repaired, waypoints_distances, drone_speed_ratio)
+                improved_child, improved_fit, improved_flights = local_search(repaired,drone_speed_ratio)
                 new_population.append(improved_child)
             # logger.debug(new_population)
 
         # evaluate the new population
         for agent in new_population:
-            fval, mspan, fl_map, st = compute_fitness(agent, waypoints_distances, drone_speed_ratio, drone_range, w1, w2)
+            fval, mspan, fl_map, st = compute_fitness(agent, drone_speed_ratio, drone_range, w1, w2)
             if st == 'feasible':
                 pop_feas.append(agent)
             elif st == 'type1':
@@ -1019,12 +1005,12 @@ def run_genetic_algorithm(places, waypoints_distances, generations, population_s
             else:
                 pop_type2_inf.append(agent)
             recent_statuses.append(st)  # save recent status
-            if len(recent_statuses) > 100:
+            if len(recent_statuses) > 10:
                 recent_statuses.pop(0)  # remove the oldest element
         # calculate the best among feasible
         improved_flag = False
         for c in pop_feas:
-            fval, mspan, fl_map, st = compute_fitness(c, waypoints_distances, drone_speed_ratio, drone_range, w1, w2)
+            fval, mspan, fl_map, st = compute_fitness(c, drone_speed_ratio, drone_range, w1, w2)
             if mspan < best_fit_val:
                 best_fit_val = mspan
                 best_sol = c
@@ -1053,8 +1039,8 @@ def run_genetic_algorithm(places, waypoints_distances, generations, population_s
         w1, w2 = adjust_penalties(recent_feasible_ratio, recent_type1_ratio, recent_type2_ratio, w1, w2)
 
         # escape strategy
-        if no_improve_count > 100:
-            logger.info("No improvement for 100 generations. Stopping.")
+        if no_improve_count > 10:
+            logger.info("No improvement for 10 generations. Stopping.")
             break
 
     return best_sol, best_sol_flights
@@ -1144,21 +1130,18 @@ if __name__ == "__main__":
     places = [(50.127177521308965, 8.667720581286744),  # Goethe Uni Westend
               (50.173571700260545, 8.630701738961589),  # Goethe Uni Riedberg
               (50.11988130693042, 8.652139750598623),  # Goethe Uni Bockenheim
-              (50.0967062213481, 8.661503898480328),  # Goethe Klinikum
+              # (50.0967062213481, 8.661503898480328),  # Goethe Klinikum
               ]
 
     generations = 5000  # number of iterations
-    population_size = 100  # number of agents
-    dm = DMRequest(places)
+    population_size = 10  # number of agents
+    # dm = DMRequest(places)
 
-    waypoints_data_ga, optimal_route_ga = run_genetic(dm, places, generations, population_size)
+    optimal_route_ga = run_genetic(places, generations, population_size)
     logger.info(f"Optimal route: {optimal_route_ga}")
-    #drone_route = optimal_route_ga[1]
-    #logger.info(drone_route)
 
     best_chromosome = optimal_route_ga[0]
     makespan, flights = advanced_join_algorithm(best_chromosome,
-                                                waypoints_data_ga["waypoints_distances"],
                                                 drone_speed_ratio=2.0)
     logger.info(f"flights: {flights}")
     tmp = {}
@@ -1208,12 +1191,12 @@ if __name__ == "__main__":
 
     logger.debug(f"Truck nodes at first: {truck_nodes}")
     logger.debug(f"Drone nodes at first: {drone_nodes}")
-    geometry_route_ga = []
-    for i in range(len(truck_nodes) - 1):
-        segment = dm.get_geometry_for_route(truck_nodes[i], truck_nodes[i + 1])
-        if segment:
-            geometry_route_ga.extend(segment)
-    return_route = dm.get_geometry_for_route(truck_nodes[-1], truck_nodes[0]) or []
+    #geometry_route_ga = []
+    #for i in range(len(truck_nodes) - 1):
+    #    segment = dm.get_geometry_for_route(truck_nodes[i], truck_nodes[i + 1])
+    #    if segment:
+    #        geometry_route_ga.extend(segment)
+    #return_route = dm.get_geometry_for_route(truck_nodes[-1], truck_nodes[0]) or []
     logger.info(f"Drone nodes: {drone_nodes}")
     logger.info(f"Drone dict: {drone_dict}")  # drone_dict[drone_node] = (launch_node, land_node)
     logger.info(f"Truck nodes: {truck_nodes}")
@@ -1224,5 +1207,5 @@ if __name__ == "__main__":
         return_route = [truck_nodes[0]]
 
     # visualisation
-    create_optimal_route_html(optimal_route=geometry_route_ga, return_route=return_route, filename="route.html",
+    create_optimal_route_html(optimal_route=cleaned_chromosome, filename="route.html",
                               cities=truck_nodes, drone_nodes=drone_nodes, drone_route=drone_dict)

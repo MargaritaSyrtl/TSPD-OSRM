@@ -5,12 +5,15 @@ import os
 from PIL import Image
 
 
-def create_optimal_route_html(optimal_route, return_route, filename, cities, drone_nodes, drone_route):
-    if not optimal_route and not return_route:
-        print("No truck route provided!")
-        return
+def create_optimal_route_html(optimal_route, filename, cities, drone_nodes, drone_route):
+    #if not optimal_route and not return_route:
+    #    print("No truck route provided!")
+    #    return
 
-    all_coords = optimal_route + return_route
+    #all_coords = optimal_route #+ return_route
+    all_coords = [coord for coord, _ in optimal_route]
+
+    print(all_coords)
     min_lat = min(lat for lat, lon in all_coords)
     max_lat = max(lat for lat, lon in all_coords)
     min_lon = min(lon for lat, lon in all_coords)
@@ -20,9 +23,13 @@ def create_optimal_route_html(optimal_route, return_route, filename, cities, dro
 
     # Маршрут грузовика
     if optimal_route:
-        folium.PolyLine(optimal_route, color="blue", weight=2.5, opacity=1).add_to(map_route)
-    if return_route:
-        folium.PolyLine(return_route, color="blue", weight=2.5, opacity=1).add_to(map_route)
+        #folium.PolyLine(optimal_route, color="blue", weight=2.5, opacity=1).add_to(map_route)
+        folium.PolyLine(
+            [coord for coord, _ in optimal_route] + [[coord for coord, _ in optimal_route][0]],
+            color="blue", weight=2.5, opacity=1).add_to(map_route)
+
+    #if return_route:
+    #    folium.PolyLine(return_route, color="blue", weight=2.5, opacity=1).add_to(map_route)
 
     # Нумерация всех городов
     for i, (lat, lon) in enumerate(cities):
