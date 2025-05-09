@@ -112,17 +112,22 @@ def advanced_join_algorithm(
                 ]):
                     continue
 
-                dist_ld = euclidean_distance(node_launch, node_drone)
-                dist_dl = euclidean_distance(node_drone, node_land)
-                drone_flight_dist = dist_ld + dist_dl
+                start_drone = euclidean_distance(node_launch, node_drone)
+                stop_drone = euclidean_distance(node_drone, node_land)
+                drone_flight_dist = start_drone + stop_drone
 
                 if drone_flight_dist > drone_range:
                     continue
 
                 t_truck = truck_dist.get((i_, k_), INF) / truck_speed  # in seconds
                 t_drone = drone_flight_dist / (drone_speed_ratio * truck_speed)  # in seconds
-                logger.debug(f"Drone time for LL: {t_drone} between {i_} and {k_}")
+                logger.debug(f"Truck dist for LL: {truck_dist.get((i_, k_), INF)} between {i_} and {k_}")
                 logger.debug(f"Truck time for LL: {t_truck} between {i_} and {k_}")
+
+                logger.debug(f"Drone dist for LL: {drone_flight_dist} between {i_} and {k_}")
+                logger.debug(f"launch -> drone: {node_launch} -> {node_drone} = {start_drone}")
+                logger.debug(f"drone -> land: {node_drone} -> {node_land} = {stop_drone}")
+                logger.debug(f"Drone time for LL: {t_drone} between {i_} and {k_}")
                 # FSTSP
                 sigma_k = 1 if choice[k_] and choice[k_][0] == "LL" else 0
                 feasible = (
@@ -138,16 +143,18 @@ def advanced_join_algorithm(
                 if val < best_val_ll and all([node_land != node_drone, node_launch != node_drone]):  # drone can't launch and land from/on drone node
                     best_val_ll, best_k_ll, best_d_ll = val, k_, d_i
 
+        logger.debug(f"C_MT {C_MT} for i={i_}")
         if best_k_ll is not None and best_d_ll is not None:
             C_LL[i_] = best_val_ll
         else:
             C_LL[i_] = INF
-
-        if C_LL[i_] < C_MT[i_] and C_LL[i_] < INF:
-            C[i_] = C_LL[i_]
+        logger.debug(f"C_LL[i_] <= C_MT[i_] {C_LL[i_] <= C_MT[i_]}")
+        logger.debug(f"C_LL[i_] > C_MT[i_] {C_LL[i_] > C_MT[i_]}")
+        if C_LL[i_] <= C_MT[i_] and C_LL[i_] < INF:
+            C[i_+1] = C_LL[i_]
             choice[i_] = ("LL", best_k_ll, best_d_ll)
         elif C_MT[i_] < INF:
-            C[i_] = C_MT[i_]
+            C[i_+1] = C_MT[i_]
             choice[i_] = ("MT", best_k_mt)
         else:
             C[i_] = INF
@@ -1164,7 +1171,7 @@ if __name__ == "__main__":
     # (2) Find the optimal route for places in Frankfurt
     places = [(50.147668332518805, 8.666132309606185),
               (50.14541029284123, 8.616449018150927),
-              (50.14721673311179, 8.721453421368421),
+              (50.14721305727534, 8.66827645827173),
               ]
 
     generations = 5000  # number of iterations
@@ -1175,6 +1182,8 @@ if __name__ == "__main__":
     logger.info(f"Optimal route: {optimal_route_ga}")
 
     best_chromosome = optimal_route_ga[0]
+    logger.debug(f"chromoseom {best_chromosome}")
+    # todo delete
     makespan, flights = advanced_join_algorithm(best_chromosome,
                                                 drone_speed_ratio=2.0)
     logger.info(f"flights: {flights}")
