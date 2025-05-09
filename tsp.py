@@ -67,13 +67,14 @@ def advanced_join_algorithm(
         ]
 
     # MT
-    for i_ in range(m - 1, -1, -1):
+    logger.debug(f"m = {m}")
+    for i_ in range(0, m - 2,):
         best_val_mt = INF
         best_k_mt = None
-        for k_ in range(i_ + 1, m + 1):
+        for k_ in range(i_ + 1, m - 1):
             cost = truck_dist.get((i_, k_), INF) / truck_speed + C[k_]  # in sec
-            logger.debug(f"Truck dist for MT: {truck_dist.get((i_, k_), INF)}")
-            logger.debug(f"Truck time for MT: {cost}")
+            logger.debug(f"Truck dist for MT: {truck_dist.get((i_, k_), INF)} between {k_} and {i_}")
+            logger.debug(f"Truck time for MT: {cost} between {k_} and {i_}")
             if cost < best_val_mt:
                 best_val_mt = cost
                 best_k_mt = k_
@@ -113,8 +114,8 @@ def advanced_join_algorithm(
 
                 t_truck = truck_dist.get((i_, k_), INF) / truck_speed  # in seconds
                 t_drone = drone_flight_dist / (drone_speed_ratio * truck_speed)  # in seconds
-                logger.debug(f"Drone time for LL: {t_drone}")
-                logger.debug(f"Truck time for LL: {t_truck}")
+                logger.debug(f"Drone time for LL: {t_drone} between {k_} and {i_}")
+                logger.debug(f"Truck time for LL: {t_truck} between {k_} and {i_}")
                 # FSTSP
                 sigma_k = 1 if choice[k_] and choice[k_][0] == "LL" else 0
                 feasible = (
