@@ -73,8 +73,8 @@ def advanced_join_algorithm(
         best_k_mt = None
         for k_ in range(i_ + 1, m - 1):
             cost = truck_dist.get((i_, k_), INF) / truck_speed + C[k_]  # in sec
-            logger.debug(f"Truck dist for MT: {truck_dist.get((i_, k_), INF)} between {k_} and {i_}")
-            logger.debug(f"Truck time for MT: {cost} between {k_} and {i_}")
+            logger.debug(f"Truck dist for MT: {truck_dist.get((i_, k_), INF)} between {i_} and {k_}")
+            logger.debug(f"Truck time for MT: {cost} between {i_} and {k_}")
             if cost < best_val_mt:
                 best_val_mt = cost
                 best_k_mt = k_
