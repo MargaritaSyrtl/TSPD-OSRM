@@ -22,7 +22,9 @@ def advanced_join_algorithm(
 
     INF = float('inf')
     truck_indices = [idx for idx, (node, t) in enumerate(chromosome) if t == 'truck']
+    logger.debug(f"truck_indices: {truck_indices}")
     m = len(truck_indices)  # number of truck nodes
+    logger.debug(m)
     if m == 0:
         return math.inf, {}
 
@@ -32,17 +34,21 @@ def advanced_join_algorithm(
     C_MT = [INF] * (m + 1)
     C_LL = [INF] * (m + 1)
     choice = [None] * (m + 1)
+    logger.info(f"C {C}")
 
-    C[m] = 0.0
-    C_MT[m] = 0.0
-    C_LL[m] = 0.0
+    C[0] = 0.0
+    C_MT[0] = 0.0
+    C_LL[0] = 0.0
     choice[m] = ("END", None)
+    logger.info(f"C[m] {C}")
 
     truck_speed = 10.0  # m/s todo adjust better
 
     truck_dist = {}
-    for i_ in range(m):  # running through all the track nodes
-        for k_ in range(i_ + 1, m + 1):
+    for i_ in range(m - 1):  # running through all the track nodes
+        for k_ in range(i_ + 1, m):
+            logger.debug(f"i_ {i_}")
+            logger.debug(f"k_ {k_}")
             if k_ == m:  # depot definition
                 depot_coord = chromosome[0][0]
                 # definition of distances between nodes
@@ -66,13 +72,14 @@ def advanced_join_algorithm(
             if chromosome[j][1] == 'drone'
         ]
 
-    # MT
     logger.debug(f"m = {m}")
-    for i_ in range(0, m - 2,):
+    for i_ in range(0, m - 1):
         best_val_mt = INF
         best_k_mt = None
-        for k_ in range(i_ + 1, m - 1):
-            cost = truck_dist.get((i_, k_), INF) / truck_speed + C[k_]  # in sec
+    # MT
+        for k_ in range(i_ + 1, m):
+            cost = (truck_dist.get((i_, k_), INF) / truck_speed) + C[i_]  # in sec
+            # logger.debug(f"truck_ speed {truck_speed}")
             logger.debug(f"Truck dist for MT: {truck_dist.get((i_, k_), INF)} between {i_} and {k_}")
             logger.debug(f"Truck time for MT: {cost} between {i_} and {k_}")
             if cost < best_val_mt:
@@ -86,7 +93,7 @@ def advanced_join_algorithm(
         best_k_ll = None
         best_d_ll = None
 
-        for k_ in range(i_ + 1, m + 1):
+        for k_ in range(i_ + 1, m):
             k_chromosome = truck_indices[k_] if k_ < m else len(chromosome)
             available_drones = find_all_drones_between(i_chromosome, k_chromosome)
 
@@ -114,8 +121,8 @@ def advanced_join_algorithm(
 
                 t_truck = truck_dist.get((i_, k_), INF) / truck_speed  # in seconds
                 t_drone = drone_flight_dist / (drone_speed_ratio * truck_speed)  # in seconds
-                logger.debug(f"Drone time for LL: {t_drone} between {k_} and {i_}")
-                logger.debug(f"Truck time for LL: {t_truck} between {k_} and {i_}")
+                logger.debug(f"Drone time for LL: {t_drone} between {i_} and {k_}")
+                logger.debug(f"Truck time for LL: {t_truck} between {i_} and {k_}")
                 # FSTSP
                 sigma_k = 1 if choice[k_] and choice[k_][0] == "LL" else 0
                 feasible = (
@@ -126,7 +133,7 @@ def advanced_join_algorithm(
                     continue
                 segtime = max(t_truck + sigma_k * s_L + s_R, t_drone + s_R)
                 # segtime = max(t_drone, t_truck)
-                val = segtime + C[k_]
+                val = segtime + C[i_]
 
                 if val < best_val_ll and all([node_land != node_drone, node_launch != node_drone]):  # drone can't launch and land from/on drone node
                     best_val_ll, best_k_ll, best_d_ll = val, k_, d_i
