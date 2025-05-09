@@ -57,6 +57,7 @@ def advanced_join_algorithm(
                 # dist = 0.0 if coord_i == coord_k else waypoints_distances.get(frozenset([coord_i, coord_k]), INF)
                 dist = 0.0 if coord_i == coord_k else euclidean_distance(coord_i, coord_k)
                 truck_dist[(i_, k_)] = dist
+                # logger.debug(dist)
 
     def find_all_drones_between(i_chromosome, k_chromosome):
         """ Searches all nodes between i and k """
@@ -71,7 +72,8 @@ def advanced_join_algorithm(
         best_k_mt = None
         for k_ in range(i_ + 1, m + 1):
             cost = truck_dist.get((i_, k_), INF) / truck_speed + C[k_]  # in sec
-            logger.debug(f"Truck time: {cost}")
+            logger.debug(f"Truck dist for MT: {truck_dist.get((i_, k_), INF)}")
+            logger.debug(f"Truck time for MT: {cost}")
             if cost < best_val_mt:
                 best_val_mt = cost
                 best_k_mt = k_
@@ -111,8 +113,8 @@ def advanced_join_algorithm(
 
                 t_truck = truck_dist.get((i_, k_), INF) / truck_speed  # in seconds
                 t_drone = drone_flight_dist / (drone_speed_ratio * truck_speed)  # in seconds
-                logger.debug(f"Drone time: {t_drone}")
-                logger.debug(f"Truck time: {t_truck}")
+                logger.debug(f"Drone time for LL: {t_drone}")
+                logger.debug(f"Truck time for LL: {t_truck}")
                 # FSTSP
                 sigma_k = 1 if choice[k_] and choice[k_][0] == "LL" else 0
                 feasible = (
@@ -142,7 +144,7 @@ def advanced_join_algorithm(
         else:
             C[i_] = INF
             choice[i_] = None
-
+    logger.debug(f"Choice: {choice}")
     makespan = C[0]
     flight_map = {}
 
@@ -741,13 +743,38 @@ def type_aware_order_crossover(p1: tuple, p2: tuple, all_nodes: set | None = Non
                 off[i] = (coord, p1_type.get(coord, off[i][1]))
     return tuple(off)
 
+#def euclidean_distance(coord1, coord2):
+#    """
+ #   Calculates the Euclidean distance between two points (lat, lon)
+#    """
+#    x1, y1 = map(float, coord1)
+#    x2, y2 = map(float, coord2)
+#    logger.info(math.hypot(x2 - x1, y2 - y1))
+#    return math.hypot(x2 - x1, y2 - y1)
+
 def euclidean_distance(coord1, coord2):
     """
-    Calculates the Euclidean distance between two points (lat, lon)
+    Calculates the approximate Euclidean distance between two coordinates (lat, lon) in meters.
+    Uses simple approximation assuming flat Earth for small distances.
     """
-    x1, y1 = map(float, coord1)
-    x2, y2 = map(float, coord2)
-    return math.hypot(x2 - x1, y2 - y1)
+    lat1, lon1 = map(float, coord1)
+    lat2, lon2 = map(float, coord2)
+
+    # Approximate conversions
+    R = 6371000  # Earth radius in meters
+    deg_to_rad = math.pi / 180
+
+    dlat = (lat2 - lat1) * deg_to_rad
+    dlon = (lon2 - lon1) * deg_to_rad
+    lat1_rad = lat1 * deg_to_rad
+    lat2_rad = lat2 * deg_to_rad
+
+    # Approximate distance on Earth's surface (great-circle)
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    distance = R * c
+
+    return distance
 
 
 def generate_initial_tsp_solution_lkh(waypoints):
@@ -1005,7 +1032,7 @@ def run_genetic_algorithm(places, generations, population_size, drone_speed_rati
             else:
                 pop_type2_inf.append(agent)
             recent_statuses.append(st)  # save recent status
-            if len(recent_statuses) > 10:
+            if len(recent_statuses) > 100:
                 recent_statuses.pop(0)  # remove the oldest element
         # calculate the best among feasible
         improved_flag = False
@@ -1127,10 +1154,9 @@ if __name__ == "__main__":
     #     places.append(get_coordinates(city))
 
     # (2) Find the optimal route for places in Frankfurt
-    places = [(50.127177521308965, 8.667720581286744),  # Goethe Uni Westend
-              (50.173571700260545, 8.630701738961589),  # Goethe Uni Riedberg
-              (50.11988130693042, 8.652139750598623),  # Goethe Uni Bockenheim
-              # (50.0967062213481, 8.661503898480328),  # Goethe Klinikum
+    places = [(50.147668332518805, 8.666132309606185),
+              (50.14541029284123, 8.616449018150927),
+              (50.14721673311179, 8.721453421368421),
               ]
 
     generations = 5000  # number of iterations
