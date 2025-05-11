@@ -29,6 +29,7 @@ def advanced_join_algorithm(
         return math.inf, {}
 
     truck_coords = [chromosome[i][0] for i in truck_indices]
+    logger.debug(f"truck_indices {truck_indices}")
 
     C = [INF] * (m + 1)
     C_MT = [INF] * (m + 1)
@@ -67,15 +68,18 @@ def advanced_join_algorithm(
 
     def find_all_drones_between(i_chromosome, k_chromosome):
         """ Searches all nodes between i and k """
-        return [
-            j for j in range(i_chromosome + 1, k_chromosome)
-            if chromosome[j][1] == 'drone'
-        ]
+        drones = []
+        for j in range(i_chromosome + 1, k_chromosome):
+            logger.debug(f"j: {j}")
+            if chromosome[j][1] == 'drone':
+                drones.append(j)
+        return drones
 
     logger.debug(f"m = {m}")
-    for i_ in range(0, m - 1):
+    for i_ in range(m - 1):
         best_val_mt = INF
         best_k_mt = None
+        logger.debug(f"Start MT cycle")
     # MT
         for k_ in range(i_ + 1, m):
             cost = (truck_dist.get((i_, k_), INF) / truck_speed) + C[i_]  # in sec
@@ -88,15 +92,20 @@ def advanced_join_algorithm(
         C_MT[i_] = best_val_mt
 
     # LL
+        logger.debug(f"Start LL cycle")
         i_chromosome = truck_indices[i_]
+        logger.debug(f"i_chromosome {i_chromosome}")
         best_val_ll = INF  # global minimum for given i_
         best_k_ll = None
         best_d_ll = None
 
-        for k_ in range(i_ + 1, m):
+        for k_ in range(i_ + 1, m + 1):
+            logger.debug(f"i_={i_}")
+            logger.debug(f"k_={k_}")
             k_chromosome = truck_indices[k_] if k_ < m else len(chromosome)
+            logger.debug(f"k_chromosome {k_chromosome}")
             available_drones = find_all_drones_between(i_chromosome, k_chromosome)
-
+            logger.debug(f"available drones {available_drones}")
             for d_i in available_drones:
                 # compute launch/land nodes
                 node_launch = chromosome[i_chromosome][0]
@@ -110,6 +119,7 @@ def advanced_join_algorithm(
                     node_land == node_drone
                     # drone can't launch and land from/on drone node
                 ]):
+                    logger.debug(f"node_launch={node_launch}, node_land={node_land}, node_drone={node_drone}")
                     continue
 
                 start_drone = euclidean_distance(node_launch, node_drone)
@@ -129,21 +139,27 @@ def advanced_join_algorithm(
                 logger.debug(f"drone -> land: {node_drone} -> {node_land} = {stop_drone}")
                 logger.debug(f"Drone time for LL: {t_drone} between {i_} and {k_}")
                 # FSTSP
-                sigma_k = 1 if choice[k_] and choice[k_][0] == "LL" else 0
-                feasible = (
-                        (t_truck + s_R + sigma_k * s_L <= epsilon) and
-                        (t_drone + s_R <= epsilon)
-                )
-                if not feasible:
-                    continue
-                segtime = max(t_truck + sigma_k * s_L + s_R, t_drone + s_R)
-                # segtime = max(t_drone, t_truck)
+                #sigma_k = 1 if choice[k_] and choice[k_][0] == "LL" else 0
+                #feasible = (
+                #        (t_truck + s_R + sigma_k * s_L <= epsilon) and
+                #        (t_drone + s_R <= epsilon)
+                #)
+                #if not feasible:
+                #    continue
+                #segtime = max(t_truck + sigma_k * s_L + s_R, t_drone + s_R)
+                segtime = max(t_drone, t_truck)
+                logger.debug(f"segtime {segtime}")
+                logger.debug(f"C[{i_}]={C[i_]}")
                 val = segtime + C[i_]
-
+                logger.debug(f"val {val}")
+                logger.debug(f"best_val_ll {best_val_ll}")
+                logger.debug(val < best_val_ll)
                 if val < best_val_ll and all([node_land != node_drone, node_launch != node_drone]):  # drone can't launch and land from/on drone node
+                    logger.debug(f"val<best_val_ll")
                     best_val_ll, best_k_ll, best_d_ll = val, k_, d_i
 
         logger.debug(f"C_MT {C_MT} for i={i_}")
+        logger.debug(f"C_LL {C_LL} for i={i_}")
         if best_k_ll is not None and best_d_ll is not None:
             C_LL[i_] = best_val_ll
         else:
@@ -198,7 +214,7 @@ def advanced_join_algorithm(
 def compute_fitness(chromosome, drone_speed_ratio=2.0, drone_range=float('inf'), w1=2.0, w2=2.0):
     try:
         makespan, flight_map = advanced_join_algorithm(chromosome, drone_speed_ratio)
-
+        logger.debug(f"makespan {makespan}: flight_map: {flight_map}")
         # check type 1
         type1_viol = 0
         type1_pos = None
@@ -841,6 +857,7 @@ def generate_agent_from_tsp_base(tsp_base):
     #    new_type = 'drone' if random.random() < 0.5 else 'truck'
     #    chrom[i] = (node, new_type)
     logger.info(chrom)
+
     return tuple(chrom)
 
 
@@ -957,6 +974,11 @@ def run_genetic_algorithm(places, generations, population_size, drone_speed_rati
     for _ in range(population_size - 1):
             agent = generate_agent_from_tsp_base(initial_tsp_agent)
             logger.debug(agent)
+            with open("log.txt", "a", encoding="utf-8") as file:
+                file.write(str(agent))
+            #return True
+            #agent = (((50.147668332518805, 8.666132309606185), 'truck'), ((50.14721305727534, 8.66827645827173), 'drone'), ((50.14541029284123, 8.616449018150927), 'truck'))
+            #logger.info(agent)
             fval, mspan, fl_map, st = compute_fitness(
                 agent, drone_speed_ratio, drone_range, w1, w2
             )
@@ -1175,7 +1197,7 @@ if __name__ == "__main__":
               ]
 
     generations = 5000  # number of iterations
-    population_size = 10  # number of agents
+    population_size = 2  # number of agents
     # dm = DMRequest(places)
 
     optimal_route_ga = run_genetic(places, generations, population_size)
