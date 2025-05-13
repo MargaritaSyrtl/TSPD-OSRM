@@ -1,6 +1,8 @@
-from TSP.DMRequest import DMRequest
+from DMRequest import DMRequest
 from visualisation import create_optimal_route_html
-from TSP.helpers import *
+from helpers import *
+from mutations_crossovers import *
+from local_search import *
 from statistics import mean
 from python_tsp.heuristics import solve_tsp_local_search
 import random
@@ -9,6 +11,16 @@ from math import isinf
 import numpy as np
 import copy
 from copy import deepcopy
+from loguru import logger
+logger.remove()
+logger.add(
+    "tspd.log",
+    level="DEBUG",            # логгировать всё
+    format="{time} | {level} | {name}:{line} - {message}",
+    rotation="5 MB",
+    encoding="utf-8",
+    mode="w"
+)
 
 
 def advanced_join_algorithm(
@@ -19,12 +31,12 @@ def advanced_join_algorithm(
         s_L=30,  # drone landing time
         epsilon=900,  # time limit for the entire LL operation for a drone in seconds (eg 15min)
 ):
-
+    logger.debug(f"chromosome: {chromosome}")
     INF = float('inf')
     truck_indices = [idx for idx, (node, t) in enumerate(chromosome) if t == 'truck']
     logger.debug(f"truck_indices: {truck_indices}")
     m = len(truck_indices)  # number of truck nodes
-    logger.debug(m)
+    logger.debug(f"m={m}")
     if m == 0:
         return math.inf, {}
 
@@ -43,7 +55,7 @@ def advanced_join_algorithm(
     choice[m] = ("END", None)
     logger.info(f"C[m] {C}")
 
-    truck_speed = 10.0  # m/s todo adjust better
+    truck_speed = 10.0  # m/s
 
     truck_dist = {}
     for i_ in range(m - 1):  # running through all the track nodes
@@ -79,7 +91,7 @@ def advanced_join_algorithm(
     for i_ in range(m - 1):
         best_val_mt = INF
         best_k_mt = None
-        logger.debug(f"Start MT cycle")
+        logger.info(f"Start MT cycle")
     # MT
         for k_ in range(i_ + 1, m):
             cost = (truck_dist.get((i_, k_), INF) / truck_speed) + C[i_]  # in sec
@@ -92,7 +104,7 @@ def advanced_join_algorithm(
         C_MT[i_] = best_val_mt
 
     # LL
-        logger.debug(f"Start LL cycle")
+        logger.info(f"Start LL cycle")
         i_chromosome = truck_indices[i_]
         logger.debug(f"i_chromosome {i_chromosome}")
         best_val_ll = INF  # global minimum for given i_
@@ -164,22 +176,31 @@ def advanced_join_algorithm(
             C_LL[i_] = best_val_ll
         else:
             C_LL[i_] = INF
-        logger.debug(f"C_LL[i_] <= C_MT[i_] {C_LL[i_] <= C_MT[i_]}")
+        logger.info(f"C_LL[i_] <= C_MT[i_] {C_LL[i_] <= C_MT[i_]}")
         logger.debug(f"C_LL[i_] > C_MT[i_] {C_LL[i_] > C_MT[i_]}")
+
+        logger.debug(f"for I={i_}: \nC_MT={C_MT}\nC_LL={C_LL}")
         if C_LL[i_] <= C_MT[i_] and C_LL[i_] < INF:
             C[i_+1] = C_LL[i_]
+            logger.info(f"C_LL chosen for next i={i_+1}")
             choice[i_] = ("LL", best_k_ll, best_d_ll)
         elif C_MT[i_] < INF:
             C[i_+1] = C_MT[i_]
+            logger.info(f"C_MT chosen for next i={i_ + 1}")
             choice[i_] = ("MT", best_k_mt)
         else:
             C[i_] = INF
+            logger.info(f"No choice for next i={i_ + 1}")
             choice[i_] = None
-    logger.debug(f"Choice: {choice}")
+
+
+
+
+    logger.debug(f"Choice: {choice}")  # todo что хотим, что видим
     makespan = C[0]
     flight_map = {}
 
-    def backtrack(i_idx):
+    def backtrack(i_idx):  # todo далее
         if i_idx >= m:
             return
         mode = choice[i_idx]
@@ -277,426 +298,6 @@ def compute_fitness(chromosome, drone_speed_ratio=2.0, drone_range=float('inf'),
         return float('inf'), float('inf'), None, "type2"
 
 
-def local_search(chromosome, drone_speed_ratio=2.0, max_attempts=20):
-    best_chrom = chromosome
-    fitness_value, best_fit, best_flights, feasibility_status = compute_fitness(best_chrom, drone_speed_ratio)
-
-    attempts = 0
-    improved = True
-    local_moves = [
-        convert_to_drone,
-        convert_to_truck,
-        swap_neighbors,
-        random_reorder,
-        local_search_L1,
-        local_search_L2,
-        local_search_L3,
-        local_search_L4,
-        local_search_L5,
-        local_search_L6,
-        local_search_L7,
-        repair_three_trucks_make_middle_drone,
-        N1_relocate_truck_1_1,
-        N2_relocate_truck_2_1_forward,
-        N3_relocate_truck_2_1_reverse,
-        N4_swap_truck_1_1,
-        N7_2opt_truck,
-        N8_2opt_truck_reverse,
-        N9_swap_drone_truck,
-        N10_swap_i_j,
-        N11_swap_j_k,
-        N12_swap_i_k,
-        N15_drone_swap_1_1
-    ]
-
-    while improved and attempts < max_attempts:
-        improved = False
-        move = random.choice(local_moves)
-        new_chrom = move(best_chrom)
-        new_fitness, new_fit, new_flights, new_status = compute_fitness(new_chrom,
-                                                                        drone_speed_ratio)
-        if new_fit < best_fit:
-            best_fit = new_fit
-            best_chrom = new_chrom
-            improved = True
-            best_flights = new_flights
-
-        attempts += 1
-    return best_chrom, best_fit, best_flights
-
-
-def convert_to_drone(chromosome):
-    chrom_list = list(chromosome)
-    truck_positions = [i for i, (n, t) in enumerate(chrom_list) if t == 'truck' and i != 0]
-    if truck_positions:
-        pos = random.choice(truck_positions)
-        node, _ = chrom_list[pos]
-        chrom_list[pos] = (node, 'drone')
-    return tuple(chrom_list)
-
-
-def convert_to_truck(chromosome):
-    chrom_list = list(chromosome)
-    drone_positions = [i for i, (n, t) in enumerate(chrom_list) if t == 'drone']
-    if drone_positions:
-        pos = random.choice(drone_positions)
-        node, _ = chrom_list[pos]
-        chrom_list[pos] = (node, 'truck')
-    return tuple(chrom_list)
-
-
-def swap_neighbors(chromosome):
-    if len(chromosome) < 3:
-        return chromosome
-    chrom_list = list(chromosome)
-
-    i = random.randint(1, len(chrom_list) - 2)
-    chrom_list[i], chrom_list[i + 1] = chrom_list[i + 1], chrom_list[i]
-    return tuple(chrom_list)
-
-
-def random_reorder(chromosome):
-    """ Changes the order of cities for local search so that the drone can be not only in 2nd place
-    """
-    chrom_list = list(chromosome)
-    seq = chrom_list[1:]
-    random.shuffle(seq)
-    return tuple([chrom_list[0]] + seq)
-
-
-def local_search_L1(chromosome):
-    """
-    Change middle of three consecutive truck nodes into a drone node.
-    """
-    chrom = list(chromosome)
-    truck_positions = [i for i, (n, t) in enumerate(chrom) if t == 'truck']
-    if len(truck_positions) < 3:
-        return chromosome
-
-    # select three consecutive truck nodes
-    idx = random.randint(0, len(truck_positions) - 3)
-    middle_idx = truck_positions[idx + 1]
-    node, _ = chrom[middle_idx]
-    chrom[middle_idx] = (node, 'drone')
-    return tuple(chrom)
-
-
-def local_search_L2(chromosome):
-    """
-    Moving a drone node between two truck nodes
-    """
-    chrom = list(chromosome)
-    drone_positions = [i for i, (n, t) in enumerate(chrom) if t == 'drone']
-    truck_positions = [i for i, (n, t) in enumerate(chrom) if t == 'truck']
-
-    if not drone_positions or len(truck_positions) < 2:
-        return chromosome
-
-    drone_idx = random.choice(drone_positions)
-    node, _ = chrom.pop(drone_idx)
-    insert_idx = random.randint(1, len(chrom)-1)
-    chrom.insert(insert_idx, (node, 'drone'))
-    return tuple(chrom)
-
-
-def local_search_L3(chromosome):
-    """
-    Exchange of truck and drone nodes without changing the position type.
-    """
-    chrom = list(chromosome)
-    truck_positions = [i for i, (n, t) in enumerate(chrom) if t == 'truck']
-    drone_positions = [i for i, (n, t) in enumerate(chrom) if t == 'drone']
-
-    if not truck_positions or not drone_positions:
-        return chromosome
-
-    t_idx = random.choice(truck_positions)
-    d_idx = random.choice(drone_positions)
-    chrom[t_idx], chrom[d_idx] = chrom[d_idx], chrom[t_idx]
-    return tuple(chrom)
-
-
-def local_search_L4(chromosome):
-    """
-    Rearrangement of two truck arcs with reversal of the middle.
-    """
-    chrom = list(chromosome)
-    truck_positions = [i for i, (n, t) in enumerate(chrom) if t == 'truck']
-
-    if len(truck_positions) < 4:
-        return chromosome
-
-    i, j = sorted(random.sample(truck_positions, 2))
-    chrom[i:j+1] = reversed(chrom[i:j+1])
-    return tuple(chrom)
-
-
-def local_search_L5(chromosome):
-    """
-    Exchange two drone nodes and convert them into a truck.
-    """
-    chrom = list(chromosome)
-    drone_positions = [i for i, (n, t) in enumerate(chrom) if t == 'drone']
-    if len(drone_positions) < 2:
-        return chromosome
-
-    i, j = random.sample(drone_positions, 2)
-    chrom[i], chrom[j] = chrom[j], chrom[i]
-    node_i, _ = chrom[i]
-    node_j, _ = chrom[j]
-    chrom[i] = (node_i, 'truck')
-    chrom[j] = (node_j, 'truck')
-    return tuple(chrom)
-
-
-def local_search_L6(chromosome):
-    """
-    Exchange two drone nodes and convert one of them into a truck.
-    """
-    chrom = list(chromosome)
-    drone_positions = [i for i, (n, t) in enumerate(chrom) if t == 'drone']
-    if len(drone_positions) < 2:
-        return chromosome
-
-    i, j = random.sample(drone_positions, 2)
-    chrom[i], chrom[j] = chrom[j], chrom[i]
-    if random.random() < 0.5:
-        node_i, _ = chrom[i]
-        chrom[i] = (node_i, 'truck')
-    else:
-        node_j, _ = chrom[j]
-        chrom[j] = (node_j, 'truck')
-    return tuple(chrom)
-
-
-def local_search_L7(chromosome):
-    chrom = list(chromosome)
-    drone_pos = [i for i,(n,t) in enumerate(chrom) if t=='drone']
-    if not drone_pos:
-        return chromosome
-    i = random.choice(drone_pos)
-    node, _ = chrom.pop(i)
-    j = random.randint(1, len(chrom))
-    chrom.insert(j, (node,'drone'))
-    return tuple(chrom)
-
-
-def repair_three_trucks_make_middle_drone(chrom):
-    """
-    If three consecutive truck nodes (T T T) are encountered,
-    transforms the middle one into a drone node: (T D T).
-    """
-    chrom_list = list(chrom)
-    for i in range(1, len(chrom_list) - 1):
-        if (chrom_list[i - 1][1] == 'truck'
-                and chrom_list[i][1] == 'truck'
-                and chrom_list[i + 1][1] == 'truck'):
-            node, _ = chrom_list[i]
-            chrom_list[i] = (node, 'drone')
-    return tuple(chrom_list)
-
-
-def N1_relocate_truck_1_1(chrom):
-    """ truck‑only relocation 1–1 """
-    chrom = list(chrom)
-    trucks = [i for i,(_,t) in enumerate(chrom) if t=='truck' and i!=0]
-    if len(trucks) < 2:
-        return tuple(chrom)
-    u, v = random.sample(trucks, 2)
-    node = chrom.pop(u)
-    v = v if u>v else v-1  # shift after pop
-    chrom.insert(v+1, node)
-    return tuple(chrom)
-
-
-def N2_relocate_truck_2_1_forward(chrom, rev=False):
-    """ truck-only relocation 2–1
-    If rev=False → move the pair (u1,u2) → (u1, u2)
-    If rev=True  → move the pair (u1,u2) → (u2, u1)
-    """
-    chrom = list(chrom)
-    trucks = [i for i,(_,t) in enumerate(chrom) if t=='truck' and i<len(chrom)-1]
-    trucks = [i for i in trucks if chrom[i+1][1]=='truck']
-    if not trucks:
-        return tuple(chrom)
-    u1 = random.choice(trucks)
-    seg = chrom[u1:u1+2][::-1] if rev else chrom[u1:u1+2]    # (u1,u2) or (u2,u1)
-    del chrom[u1:u1+2]
-    others = [i for i, (_, t) in enumerate(chrom) if t == 'truck' and i not in (u1, u1 + 1)]
-    if not others:
-        return tuple(chrom)
-
-    v = random.choice(others)
-    v = v if u1>v else v-1
-    chrom[v+1:v+1] = seg
-    return tuple(chrom)
-
-
-def N3_relocate_truck_2_1_reverse(chrom):
-    return N2_relocate_truck_2_1_forward(chrom, rev=True)
-
-
-def N4_swap_truck_1_1(chrom):
-    chrom = list(chrom)
-    trucks = [i for i,(_,t) in enumerate(chrom) if t=='truck' and i!=0]
-    if len(trucks)<2:
-        return tuple(chrom)
-    i,j = random.sample(trucks,2)
-    chrom[i],chrom[j] = chrom[j],chrom[i]
-    return tuple(chrom)
-
-
-def N5_swap_truck_2_1(chrom):
-    chrom = list(chrom)
-    pairs = [i for i,(_,t) in enumerate(chrom[:-1])
-             if t=='truck' and chrom[i+1][1]=='truck']
-    if not pairs:
-        return tuple(chrom)
-    u = random.choice(pairs)
-    others = [k for k,(_,t) in enumerate(chrom) if t=='truck' and k not in (u,u+1)]
-    if not others:
-        return tuple(chrom)
-    v = random.choice(others)
-    seg = chrom[u:u+2]
-    del chrom[u:u+2]
-    v = v if u>v else v-1
-    chrom.insert(v+1, seg[1])
-    chrom.insert(v+2, seg[0])
-    return tuple(chrom)
-
-
-def N6_swap_truck_2_2(chrom):
-    chrom=list(chrom)
-    pairs=[i for i,(_,t) in enumerate(chrom[:-1])
-           if t=='truck' and chrom[i+1][1]=='truck']
-    if len(pairs)<2:
-        return tuple(chrom)
-    p,q = random.sample(pairs,2)
-    # cut out segments of length 2
-    seg1, seg2 = chrom[p:p+2], chrom[q:q+2]
-    chrom[p:p+2], chrom[q:q+2] = seg2, seg1
-    return tuple(chrom)
-
-
-def N7_2opt_truck(chrom, cross=False):
-    chrom = list(chrom)
-    trucks = [i for i,(_,t) in enumerate(chrom)]
-    if len(trucks) < 4:
-        return tuple(chrom)
-    i, j = sorted(random.sample(range(1, len(chrom)-1), 2))
-    if cross:
-        chrom[i:j+1] = reversed(chrom[i:j+1])
-    else:
-        chrom = chrom[:i]+chrom[j+1:]+chrom[i:j+1]
-    return tuple(chrom)
-
-
-def N8_2opt_truck_reverse(chrom):
-    return N7_2opt_truck(chrom, cross=True)
-
-
-def _find_drone_triplets(chrom):
-    """⟨launch i, drone j, land k⟩"""
-    trips=[]
-    stack=[]
-    for idx,(coord,t) in enumerate(chrom):
-        if t=='drone':
-            if stack:
-                trips.append((stack[-1],idx))
-        elif t=='truck':
-            stack.append(idx)
-    # land – first truck-node after drone-node
-    clean=[]
-    for l_idx, d_idx in trips:
-        k_idx = next((x for x in range(d_idx+1,len(chrom)) if chrom[x][1]=='truck'), None)
-        if k_idx: clean.append((l_idx,d_idx,k_idx))
-    return clean
-
-
-def N9_swap_drone_truck(chrom):
-    chrom=list(chrom)
-    drones=[i for i,(_,t) in enumerate(chrom) if t=='drone']
-    trucks=[i for i,(_,t) in enumerate(chrom) if t=='truck' and i!=0]
-    if not drones or not trucks: return tuple(chrom)
-    d,u = random.choice(drones), random.choice(trucks)
-    chrom[d], chrom[u] = chrom[u], chrom[d]
-    return tuple(chrom)
-
-
-def N10_swap_i_j(chrom):
-    chrom=list(chrom)
-    trips=_find_drone_triplets(chrom)
-    if not trips: return tuple(chrom)
-    i,j,k = random.choice(trips)
-    chrom[i],chrom[j] = chrom[j],chrom[i]
-    return tuple(chrom)
-
-
-def N11_swap_j_k(chrom):
-    chrom=list(chrom)
-    trips=_find_drone_triplets(chrom)
-    if not trips: return tuple(chrom)
-    i,j,k = random.choice(trips)
-    chrom[j],chrom[k] = chrom[k],chrom[j]
-    return tuple(chrom)
-
-
-def N12_swap_i_k(chrom):
-    chrom=list(chrom)
-    trips=_find_drone_triplets(chrom)
-    if not trips:
-        return tuple(chrom)
-    i,j,k = random.choice(trips)
-    chrom[i],chrom[k] = chrom[k],chrom[i]
-    return tuple(chrom)
-
-
-def N13_drone_insertion(chrom):
-    """
-    Makes an existing node a drone node, ensuring that there are no other drones between the selected launch and land truck nodes (i, k).
-    """
-    chrom = list(chrom)
-    trucks = [idx for idx, (_, t) in enumerate(chrom) if t == 'truck']
-
-    # search for all pairs (i,k) without drones between them
-    valid_pairs = []
-    for a in range(len(trucks) - 1):
-        for b in range(a + 1, len(trucks)):
-            i, k = trucks[a], trucks[b]
-            if all(chrom[p][1] == 'truck' for p in range(i + 1, k)):
-                valid_pairs.append((i, k))
-
-    if not valid_pairs:
-        return tuple(chrom)
-
-    i, k = random.choice(valid_pairs)
-
-    # do not move the node between i and k, but just skip it
-    # candidates = [p for p in range(i + 1, k) if chrom[p][1] == 'truck']  # nodes between i and k
-    # if not candidates:
-    #     return tuple(chrom)
-    # j = random.choice(candidates)
-
-    # select any node that will become a drone
-    j = random.randint(1, len(chrom) - 1)
-    node, _ = chrom[j]
-    chrom[j] = (node, 'drone')
-    # if the new drone is outside (i,k), move it inside
-    if not (i < j < k):
-        chrom.pop(j)
-        insert_pos = random.randint(i + 1, k - 1)
-        chrom.insert(insert_pos, (node, 'drone'))
-    return tuple(chrom)
-
-
-def N15_drone_swap_1_1(chrom):
-    chrom=list(chrom)
-    drones=[i for i,(_,t) in enumerate(chrom) if t=='drone']
-    if len(drones)<2: return tuple(chrom)
-    a,b = random.sample(drones,2)
-    chrom[a],chrom[b] = chrom[b],chrom[a]
-    return tuple(chrom)
-
 
 def get_node(individual):
     return individual[0]
@@ -712,100 +313,6 @@ def remove_duplicates(population):
             unique.append(agent)
     return unique
 
-
-def type_aware_order_crossover(p1: tuple, p2: tuple, all_nodes: set | None = None,
-                               variant: str | None = None):
-    """
-    TOX1 / TOX2
-    """
-    if len(p1) != len(p2):
-        raise ValueError("Parents must be equal‑length")
-
-    n = len(p1)
-    depot = p1[0]
-    cut1, cut2 = sorted(random.sample(range(1, n), 2))
-    variant  = variant or random.choice(("TOX1", "TOX2"))
-    all_nodes = all_nodes or {g[0] for g in p1[1:]}
-
-    off = [None] * n
-    off[0] = depot
-
-    # copy segment
-    # TOX1
-    if variant == "TOX1":
-        chosen_type = random.choice(("truck", "drone"))
-        for i in range(cut1, cut2):
-            # only nodes of the selected type are copied from the first parent p1 to the same positions of the child off
-            if p1[i][1] == chosen_type:
-                off[i] = p1[i]
-    # TOX2
-    else:
-        # copy the segment [cut1:cut2] from the first parent in off
-        off[cut1:cut2] = p1[cut1:cut2]
-    # collect the coordinates of all nodes already placed in off
-    used = {g[0] for g in off if g}
-    src = [g for g in p2[1:] if g[0] not in used] + \
-          [g for g in p1[1:] if g[0] not in used] + \
-          [(coord, 'truck') for coord in all_nodes if coord not in used]
-
-    idx = 0
-    p2_type = {g[0]: g[1] for g in p2}
-    # all cells that remain None are filled with elements from the src list
-    for i in range(1, n):
-        if off[i] is None:
-            coord = src[idx][0]
-            typ = p2_type.get(coord, src[idx][1])  # type from P2
-            off[i] = (coord, typ)
-            idx += 1
-
-    if variant == "TOX2":
-        p1_type = {g[0]: g[1] for g in p1}
-        p2_type = {g[0]: g[1] for g in p2}
-        for i in range(cut1, cut2):
-            # type is changed to the one that the corresponding node in p2 had
-            coord = off[i][0]
-            # within segment [cut1:cut2]
-            if cut1 <= i < cut2:
-                # type from P2
-                off[i] = (coord, p2_type.get(coord, off[i][1]))
-            # outside segment [cut1:cut2]
-            else:
-                # type from P1
-                off[i] = (coord, p1_type.get(coord, off[i][1]))
-    return tuple(off)
-
-#def euclidean_distance(coord1, coord2):
-#    """
- #   Calculates the Euclidean distance between two points (lat, lon)
-#    """
-#    x1, y1 = map(float, coord1)
-#    x2, y2 = map(float, coord2)
-#    logger.info(math.hypot(x2 - x1, y2 - y1))
-#    return math.hypot(x2 - x1, y2 - y1)
-
-def euclidean_distance(coord1, coord2):
-    """
-    Calculates the approximate Euclidean distance between two coordinates (lat, lon) in meters.
-    Uses simple approximation assuming flat Earth for small distances.
-    """
-    lat1, lon1 = map(float, coord1)
-    lat2, lon2 = map(float, coord2)
-
-    # Approximate conversions
-    R = 6371000  # Earth radius in meters
-    deg_to_rad = math.pi / 180
-
-    dlat = (lat2 - lat1) * deg_to_rad
-    dlon = (lon2 - lon1) * deg_to_rad
-    lat1_rad = lat1 * deg_to_rad
-    lat2_rad = lat2 * deg_to_rad
-
-    # Approximate distance on Earth's surface (great-circle)
-    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    distance = R * c
-
-    return distance
 
 
 def generate_initial_tsp_solution_lkh(waypoints):
@@ -860,36 +367,6 @@ def generate_agent_from_tsp_base(tsp_base):
 
     return tuple(chrom)
 
-
-def mutate_agent(agent_genome, max_mutations=3):
-    if len(agent_genome) < 3:
-        return agent_genome
-    genome_list = list(agent_genome)
-    num_mut = random.randint(1, max_mutations)
-
-    for _ in range(num_mut):
-        i1 = random.randint(1, len(genome_list) - 1)
-        i2 = random.randint(1, len(genome_list) - 1)
-        if i1 != i2:
-            (n1, t1) = genome_list[i1]
-            (n2, t2) = genome_list[i2]
-            if t1 == t2:  # only if type matches
-                genome_list[i1], genome_list[i2] = genome_list[i2], genome_list[i1]
-    return tuple(genome_list)
-
-
-def shuffle_mutation(agent_genome):
-    if len(agent_genome) <= 2:
-        return agent_genome
-    g_list = list(agent_genome)
-    start = random.randint(1, len(g_list) - 1)
-    length = random.randint(1, 3)
-    sub = g_list[start:start + length]
-    g_list = g_list[:start] + g_list[start + length:]
-    insert_index = random.randint(1, len(g_list))
-    g_list = g_list[:insert_index] + sub + g_list[insert_index:]
-
-    return tuple(g_list)
 
 def run_genetic(places, generations, population_size):
     """
@@ -1030,12 +507,12 @@ def run_genetic_algorithm(places, generations, population_size, drone_speed_rati
             logger.debug(f"{p1} \n{p2}")
             # crossover
             logger.info("start offspring1")
-            offspring1 = type_aware_order_crossover(p1, p2)
+            offspring1 = crossover(p1, p2)
             logger.debug(f"{offspring1}")
             offspring1 = repair_chromosome(offspring1, [get_node(gene) for gene in initial_tsp_agent])
             logger.debug(f"{offspring1}")
             logger.info("start offspring2")
-            offspring2 = type_aware_order_crossover(p2, p1)
+            offspring2 = crossover(p2, p1)
             logger.debug(offspring2)
             offspring2 = repair_chromosome(offspring2, [get_node(gene) for gene in initial_tsp_agent])
             logger.debug(f"{offspring2}")
@@ -1196,7 +673,7 @@ if __name__ == "__main__":
               (50.14721305727534, 8.66827645827173),
               ]
 
-    generations = 5000  # number of iterations
+    generations = 1  # number of iterations
     population_size = 2  # number of agents
     # dm = DMRequest(places)
 

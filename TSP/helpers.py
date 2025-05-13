@@ -1,5 +1,6 @@
 import requests
 from loguru import logger
+import math
 
 
 def get_coordinates(city_name):
@@ -31,3 +32,28 @@ def get_city_names(lat, lon):
     else:
         logger.error(f"Error: {response.status_code}, {response.text}")
         return (lat, lon)
+
+
+def euclidean_distance(coord1, coord2):
+    """
+    Calculates the approximate Euclidean distance between two coordinates (lat, lon) in meters.
+    Uses simple approximation assuming flat Earth for small distances.
+    """
+    lat1, lon1 = map(float, coord1)
+    lat2, lon2 = map(float, coord2)
+
+    # Approximate conversions
+    R = 6371000  # Earth radius in meters
+    deg_to_rad = math.pi / 180
+
+    dlat = (lat2 - lat1) * deg_to_rad
+    dlon = (lon2 - lon1) * deg_to_rad
+    lat1_rad = lat1 * deg_to_rad
+    lat2_rad = lat2 * deg_to_rad
+
+    # Approximate distance on Earth's surface (great-circle)
+    a = math.sin(dlat / 2) ** 2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    distance = R * c
+
+    return distance
