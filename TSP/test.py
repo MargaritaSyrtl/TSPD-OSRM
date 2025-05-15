@@ -1,5 +1,7 @@
 import math
 from loguru import logger
+from itertools import combinations
+import folium
 
 
 def euclidean_distance(coord1, coord2):
@@ -27,6 +29,7 @@ def euclidean_distance(coord1, coord2):
 
 
 def join_algorithm(chromosome, truck_time, drone_time, drone_range):
+    action_trace = {}  # i -> best action ('MT' or 'LL')
     n = len(chromosome)
     logger.debug(chromosome)
     full_seq = [0] + [abs(x) for x in chromosome] + [n + 1]  # virtual end node
@@ -34,6 +37,8 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
 
     node_types = {abs(x): 'truck' if x >= 0 else 'drone' for x in chromosome}
     logger.debug(f"nodes_types {node_types}")
+    all_nodes_to_serve = set(i for i in range(1, n + 1))  # всё, кроме депо
+    logger.debug(all_nodes_to_serve)
     truck_nodes = [0]
     drone_nodes = []
     for i in range(1, n + 1):  # n+1 virtual node -> 3=0
@@ -54,7 +59,9 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
 
     logger.debug(len(truck_nodes) - 1)
     logger.debug(range(len(truck_nodes) - 1))
-    #
+    best_mt = 0
+    best_ll = 0
+    all_options = []
     # move truck from i to j
     for idx in reversed(range(len(truck_nodes) - 1)):  # from the end of the route to the beginning including the depot at the end
         logger.debug(f"idx {idx}")
@@ -65,32 +72,44 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
 
         # MT
         logger.info(f"Start MT")
+        CMT_best = float('inf')
+
         # all truck nodes after i
         for j in truck_nodes[idx + 1:]:
+            served_mt = {}
             logger.debug(f"truck_nodes[{idx + 1:}]={j}")
             if full_seq[j] == full_seq[-1] and any(
                     full_seq[k] in node_types and node_types[full_seq[k]] == 'truck'
                     for k in range(i + 1, j)
             ):
-                continue  # skip jump to end if there are unvisited truck nodes between i and j
+                continue  # skip jump to the end ???
 
             t_time = truck_time[full_seq[i]][full_seq[j]]
             logger.debug(f"time between {i} and {j} = {t_time}")
             logger.debug(f"C[{j}]={C.get(j, float('inf'))}")  # minimum time from j to the end of the route
-
             CMT = min(CMT, t_time + C.get(j, float('inf')))
             logger.debug(f"C_MT= {CMT}")
+            if CMT < CMT_best:
+                CMT_best = CMT
+                best_mt = ('MT', full_seq[i], full_seq[j], CMT)
+                logger.debug(f"best mt={best_mt}")  # ('MT', 0, 2, 14.25)
+                all_options.append((CMT, ('MT', full_seq[i], full_seq[j], CMT)))
+            served_mt[j] = CMT
+            logger.debug(f"served_mt={served_mt}")
 
         # LL
         logger.info(f"Start LL")
+
         # the first drone node after i
         for d in range(i + 1, len(full_seq) - 1):
+            served_ll = {}
             logger.debug(f"d={d}")
             if node_types.get(d, '') != 'drone':
                 continue
 
             deliver = full_seq[d]
             logger.debug(f"deliver {deliver}")
+            CLL_best =  float('inf')
             # land nodes - all truck stations after delivery
             for k in truck_nodes:
                 if k <= d:
@@ -98,38 +117,120 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
                 land = full_seq[k]
                 logger.debug(f"land {land}")
 
-                logger.debug(drone_time[full_seq[i]][deliver])
-                logger.debug(drone_time[deliver][land])
-                d_flight = drone_time[full_seq[i]][deliver] + drone_time[deliver][land]
+                logger.debug(drone_time[full_seq[i]][deliver])  # launch->d
+                logger.debug(drone_time[deliver][land])  # d->land
+                d_flight = drone_time[full_seq[i]][deliver] + drone_time[deliver][land]  # full time
                 logger.debug(f"d flight {d_flight}")
-                t_drive = truck_time[full_seq[i]][land]
-                logger.debug(f"t drive {t_drive}")
+                if full_seq[j] == full_seq[-1]:  # 0=(0')
+                    CLL = d_flight
+                    # if there are unvisited truck nodes between i and j
+                else:
+                    t_drive = truck_time[full_seq[i]][land]  # launch->land on truck!
+                    logger.debug(f"t drive {t_drive}")
 
-                if d_flight <= drone_range:
-                    logger.debug(f"C[{k}]={C.get(k)}")
-                    total = max(d_flight, t_drive) + C.get(k, float('inf'))
-                    logger.debug(f"total={total}")
-                    CLL = min(CLL, total)
-                    logger.debug(f"CLL={CLL}")
-            break  # только первый drone после i, как в статье??
+                    if d_flight <= drone_range:
+                        logger.debug(f"C[{k}]={C.get(k)}")
+                        total = max(d_flight, t_drive) + C.get(k, float('inf'))
+                        logger.debug(f"total={total}")
+                        CLL = min(CLL, total)
+                        logger.debug(f"CLL={CLL}")
 
-        C[i] = min(CMT, CLL)
-        logger.debug(f"C[{i}] at the end: {C[i]}")
+                if CLL < CLL_best:
+                    CLL_best = CLL
+                    best_ll = ('LL', full_seq[i], deliver, land, CLL)
+                    logger.debug(f"best ll={best_ll}")
+                    all_options.append((CLL, ('LL', full_seq[i], deliver, land, CLL)))
 
-    # todo все узлы должны обслуживаться
-    return C[0]
+            served_ll[d] = CLL_best
+            logger.debug(f"served_ll={served_ll}")
+            # break  # только первый drone после i, как в статье??
+            continue
+
+        logger.info(f"best values: {best_mt}, {best_ll}")  # ('MT', 0, 2, 28.5), ('LL', 0, 1, 3, 356.98)
+
+        # C[i] = min(CMT, CLL)
+        logger.debug(f"compare: {CMT} vs {CLL}")
+        if CMT <= CLL:
+            C[i] = CMT
+            res = best_mt
+        else:
+            C[i] = CLL
+            res = best_ll
+        action_trace[i] = res
+        # logger.debug(f"res: {res}")
+        # logger.debug(f"C[{i}] at the end: {C[i]}")
+        logger.debug(f"all_options: {all_options}")
+
+    # calculate the optimal route
+    required_nodes = set(abs(x) for x in chromosome)
+    optimal_route = None
+    best_makespan = float('inf')
+
+    for r in range(1, len(all_options) + 1):
+        for combo in combinations(all_options, r):
+            actions = [a for _, a in combo]  # actions without time
+            served = set()  # served nodes
+            ends_at_depot = False
+
+            for a in actions:
+                if a[0] == 'MT':
+                    served.add(a[2])
+                    if a[2] == n + 1:  # end at depot
+                        ends_at_depot = True
+                elif a[0] == 'LL':
+                    served.add(a[2])
+
+            if served >= required_nodes and ends_at_depot:
+                # ((14.25,   ('MT', 2,    3, 14.25)),
+                #  (28.5,    ('MT', 0,    2, 28.5)),
+                #  (364.095, ('LL', 0, 1, 2, 364.095)),
+                #  (356.98,  ('LL', 0, 1, 3, 356.98)))
+                makespan = max(t for t, _ in combo)
+                if makespan < best_makespan:
+                    optimal_route = actions
+                    best_makespan = makespan
+    logger.debug(f"optimal route: {optimal_route}")
+    logger.debug(f"best_makespan: {best_makespan}")
+    return optimal_route, best_makespan
+
+
+def visualize_route(places, route):
+    # depo
+    center = places[0]
+    m = folium.Map(location=center, zoom_start=14)
+
+    # markers
+    for idx, (lat, lon) in enumerate(places):
+        folium.Marker([lat, lon], tooltip=f"Point {idx}").add_to(m)
+
+    # visualise
+    for action in route:
+        if action[0] == 'MT':
+            _, start, end, _ = action
+            points = [places[start], places[end]]
+            folium.PolyLine(points, color="blue", weight=2.5, tooltip=f"Truck {start}->{end}").add_to(m)
+        elif action[0] == 'LL':
+            _, launch, deliver, land, _ = action
+            drone_points = [places[launch], places[deliver], places[land]]
+            folium.PolyLine(drone_points, color="green", weight=2.5, dash_array='5,10',
+                            tooltip=f"Drone {launch}->{deliver}->{land}").add_to(m)
+    m.save("route_map.html")
+    return True
 
 
 if __name__ == "__main__":
     drone_speed = 20  # m/s
     truck_speed = 10
 
-    places = [(50.147, 8.666),  # idx=0
+    places = [(50.149, 8.666),  # idx=0
               (50.145, 8.616),  # idx=1
               (50.147, 8.668),  # idx=2
+              (50.146, 8.777),
+              #(50.155, 7.777)
               ]
 
     places.append(places[0])   # depo
+    # places.append((places[0][0] + 0.00001, places[0][1]))  # move depo by 1 meter
 
     generations = 1  # number of iterations
     population_size = 2  # number of agents
@@ -150,13 +251,38 @@ if __name__ == "__main__":
     logger.debug(f"truck_time_matrix {truck_time_matrix}")
     logger.debug(f"drone_time_matrix {drone_time_matrix}")
 
-    chromosome = [-1, 2]
-    #chromosome = [{(50.147, 8.666): "truck",
-    #               (50.145, 8.616): "truck",
-    #               (50.147, 8.668): "drone"}]
+    chromosome1 = [1, 2, 3]
+    chromosome2 = [-1, 2, 3]
+    chromosome3 = [1, -2, 3]
+    chromosome4 = [1, 2, -3]
+    chromosome5 = [-1, -2, 3]
+    chromosome6 = [-1, 2, -3]
+    chromosome7 = [1, -2, -3]
+    # chromosome8 = [-1, -2, -3]  # need to be tested
 
-    makespan = join_algorithm(chromosome, truck_time_matrix, drone_time_matrix, drone_range=float('inf'))
-    logger.debug(f"makespan: {makespan}")
+    # optimal_route, makespan = join_algorithm(chromosome1, truck_time_matrix, drone_time_matrix, drone_range=float('inf'))
+    # visualize_route(places, optimal_route)
+    
+    # cycle to find the best route between all points
+    best_route = None
+    best_chromosome = None
+    best_makespan = float('inf')
+    with open("logs.txt", "a", encoding="utf-8") as file:
+        for i in range(1, 8):
+            chromosome = eval(f"chromosome{i}")
+            optimal_route, makespan = join_algorithm(chromosome, truck_time_matrix, drone_time_matrix, drone_range=float('inf'))
+            if makespan < best_makespan:
+                best_makespan = makespan
+                best_chromosome = f"chromosome{i}"
+                best_route = optimal_route
+                to_write = str(best_route) + str(best_makespan) + best_chromosome + "\n"
+                file.write(str(to_write))
+
+    logger.info(f"chrom: {best_chromosome}")
+    logger.info(f"makespan: {best_makespan}")
+    logger.info(f"route: {best_route}")
+    visualize_route(places, best_route)
+
 
 
 
