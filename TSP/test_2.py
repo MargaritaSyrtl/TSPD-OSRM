@@ -236,14 +236,156 @@ def generate_initial_population(n, size):
 
 
 def evaluate(chromosome, truck_time, drone_time, drone_range):
-
+    """Compute fitness of the chromosome"""
     route, cost = join_algorithm(chromosome, truck_time, drone_time, drone_range)
     logger.debug(f"Route: {route}")
     logger.debug(f"cost: {cost}")
     return cost
 
 
-def genetic_algorithm(places, generations=1, population_size=2, truck_speed=10, drone_range=float('inf')):
+def tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range, k=2):
+    """ kTOURNAMENT individuals are randomly selected from the entire population
+    and the best one is selected as the parent based on fitness"""
+    # sort by fitness
+    sorted_pop = [x for _, x in sorted(zip(fitnesses, population), key=lambda pair: pair[0])]
+    logger.debug(sorted_pop)
+    # take k random individuals from the sorted population
+    candidates = random.sample(sorted_pop, k)
+    logger.debug(candidates)
+    # return the best one
+    return min(candidates, key=lambda chrom: evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range))
+
+
+def sign_mutation(chromosome, prob=0.1):
+    """independently changes the sign of each element in the chromosome with a fixed probability of 0.1"""
+    logger.info(f"Starting sign mutation.")
+    return [g if random.random() > prob else -g for g in chromosome]
+
+
+def tour_mutation(chromosome, fraction=0.2):
+    """20% of the indices in the chromosome are randomly shuffled"""
+    logger.info(f"Starting tour mutation.")
+    chrom = chromosome[:]
+    n = len(chrom)
+    count = max(1, int(fraction * n))  # number of genes to be shuffled
+    # logger.debug(f"count: {count}")
+    indices = random.sample(range(n), count)  # indices to be shuffled
+    # logger.debug(f"indices: {indices}")
+    values = [chrom[i] for i in indices]  # values by indexes
+    # logger.debug(f"values: {values}")
+    random.shuffle(values)
+    # reassemble the chromosome
+    for idx, val in zip(indices, values):
+        chrom[idx] = val
+    # logger.debug(f"mutated chromosome: {chrom}")
+    return chrom
+
+
+def tox1(parent1, parent2):
+    """TOX1 crossover: copies a fragment of one type from p1, adds the rest from p2."""
+    logger.info(f"Starting with tox1.")
+    n = len(parent1)
+    i1, i2 = sorted(random.sample(range(n), 2))
+    # logger.debug(f"fragment between i1={i1} and i2={i2}")
+    segment_type = 'truck' if random.random() < 0.5 else 'drone'
+    # logger.debug(f"segment_type: {segment_type}")
+
+    def type_of_node(g):
+        return 'truck' if g > 0 else 'drone'
+
+    # copy the substring of the required type from p1
+    segment = [g for g in parent1[i1:i2+1] if type_of_node(g) == segment_type]
+    # logger.debug(f"segment: {segment}")
+    segment_ids = set(abs(g) for g in segment)
+    # logger.debug(f"segment ids: {segment_ids}")
+
+    # add missing genes from p2 in their order and type
+    rest = [g for g in parent2 if abs(g) not in segment_ids]
+    # logger.debug(f"rest: {rest}")
+
+    # resulting child
+    offspring = segment + rest
+    # logger.debug(f"offspring: {offspring}")
+    return offspring
+
+
+def tox2(parent1, parent2):
+    """TOX2 crossover"""
+    logger.info(f"Starting with tox2.")
+    n = len(parent1)
+    i1, i2 = sorted(random.sample(range(n), 2))
+    # logger.debug(f"between: {i1} and {i2}")
+    # copy the segment from p1
+    segment = parent1[i1:i2+1]
+    # logger.debug(f"segment: {segment}")
+    segment_ids = set(abs(g) for g in segment)  # stores nodes without signs that are already in this segment
+    # logger.debug(f"segment ids: {segment_ids}")
+
+    # add missing genes from p2 in order
+    rest = [g for g in parent2 if abs(g) not in segment_ids]
+    # logger.debug(f"rest: {rest}")
+
+    # offspring = start + segment + end
+    offspring_base = rest[:i1] + segment + rest[i1:]
+    # logger.debug(f"base: {offspring_base}")
+
+    # assign signs: for i1..i2: use signs from p2, rest: use signs from p1
+    sign_p1 = {abs(g): g for g in parent1}
+    # logger.debug(f"sign_p1: {sign_p1}")
+    sign_p2 = {abs(g): g for g in parent2}
+    # logger.debug(f"sign_p2: {sign_p2}")
+    offspring = []
+    for idx, g in enumerate(offspring_base):
+        node_id = abs(g)
+        if i1 <= idx <= i2:
+            signed = sign_p2.get(node_id, g)  # sign from P2
+        else:
+            signed = sign_p1.get(node_id, g)  # sign from P1
+        offspring.append(signed)
+    # logger.debug(f"offspring: {offspring}")
+    return offspring
+
+
+def local_search(chromosome, truck_time, drone_time, drone_range):
+    logger.info(f"Starting with local search.")
+    logger.debug(f"chrom: {chromosome}")
+    best_chrom = chromosome
+    best_cost = evaluate(best_chrom, truck_time, drone_time, drone_range)
+    max_attempts = 5  # todo how much?
+    attempts = 0
+    improved = True
+    local_moves = [local_search_l1  # todo more
+                   ]
+    while improved and attempts < max_attempts:
+        improved = False
+        move = random.choice(local_moves)
+        new_chrom = move(best_chrom)
+        new_cost = evaluate(new_chrom, truck_time, drone_time, drone_range)
+        if new_cost < best_cost:
+            best_cost = new_cost
+            best_chrom = new_chrom
+            improved = True
+        attempts += 1
+    logger.debug(f"chrom was: {chromosome}")
+    logger.debug(f"chrom ist: {best_chrom}")
+    return best_chrom, best_cost
+
+
+def local_search_l1(chromosome):
+    """
+    Choose three consecutive truck nodes and convert the middle one to a drone node
+    """
+    chrom = chromosome[:]
+    n = len(chrom)
+    # find three consecutive truck nodes
+    for i in range(n - 2):
+        if chrom[i] > 0 and chrom[i+1] > 0 and chrom[i+2] > 0:
+            chrom[i+1] = -chrom[i+1]  # convert the middle one to a drone node
+            return chrom
+    return chrom
+
+
+def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, drone_range=float('inf')):
     drone_speed = 2 * truck_speed
     feasible = {}
     infeasible_1 = {}
@@ -274,16 +416,40 @@ def genetic_algorithm(places, generations=1, population_size=2, truck_speed=10, 
             truck_time_matrix[i][j] = dist / truck_speed
             drone_time_matrix[i][j] = dist / drone_speed
 
-    best_chrom = []
-    best_cost = []
-    for g in range(generations):
-        # evaluate fitness of all chromosomes
-        fitnesses = [evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range) for chrom in population]
-        logger.info(fitnesses)
+    fitnesses = []
+    with open("mutations.txt", "w", encoding="utf-8") as file:
 
+        for g in range(generations):
+            # evaluate fitness of all chromosomes
+            fitnesses = [evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range) for chrom in population]
+            logger.info(fitnesses)
+            file.write(str(fitnesses))
+        # tournament selection
+        p1 = tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range)
+        logger.info(f"first parent: {p1}")  # [3, -1, 2]
+        p2 = tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range)
+        while p1 == p2:
+            p2 = tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range)
+        logger.info(f"second parent: {p2}")  # [2, -1, 3]
+        file.write(str(p1))
+        file.write(str(p2))
+        # todo: if still p1==p2 ?
 
-
-
+        # crossover -> new child
+        child = tox1(p1, p2) if random.random() < 0.5 else tox2(p1, p2)
+        logger.debug(f"child: {child}")  # child: [-1, 2, -3]
+        file.write(str(child))
+        # mutation
+        if random.random() < 0.5:
+            child = sign_mutation(child)
+        else:
+            child = tour_mutation(child)
+        logger.debug(f"child after mutation: {child}")  # child after mutation: [-1, 2, 3]
+        file.write(str(child))
+        # local search
+        child = local_search(child, truck_time_matrix, drone_time_matrix, drone_range)
+        logger.debug(f"child after local search: {child}")
+        file.write(str(child))
 
 
 if __name__ == "__main__":
