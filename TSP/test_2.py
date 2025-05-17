@@ -133,12 +133,17 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
                     t_drive = truck_time[full_seq[i]][land]  # launch->land on truck!
                     logger.debug(f"t drive {t_drive}")
 
-                    if d_flight <= drone_range:
-                        logger.debug(f"C[{k}]={C.get(k)}")
-                        total = max(d_flight, t_drive) + C.get(k, float('inf'))
-                        logger.debug(f"total={total}")
-                        CLL = min(CLL, total)
-                        logger.debug(f"CLL={CLL}")
+                    # does not discard LL actions even if they are out of bounds
+                    if d_flight > drone_range:
+                        penalty = (d_flight - drone_range) * 2  # (for example) todo
+                        d_flight += penalty
+
+                    # if d_flight <= drone_range:
+                    logger.debug(f"C[{k}]={C.get(k)}")
+                    total = max(d_flight, t_drive) + C.get(k, float('inf'))
+                    logger.debug(f"total={total}")
+                    CLL = min(CLL, total)
+                    logger.debug(f"CLL={CLL}")
 
                 if CLL < CLL_best:
                     CLL_best = CLL
@@ -194,6 +199,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
                 if makespan < best_makespan:
                     optimal_route = actions
                     best_makespan = makespan
+    # todo why route can be none
     logger.debug(f"optimal route: {optimal_route}")
     logger.debug(f"best_makespan: {best_makespan}")
     return optimal_route, best_makespan
@@ -236,11 +242,29 @@ def generate_initial_population(n, size):
 
 
 def evaluate(chromosome, truck_time, drone_time, drone_range):
-    """Compute fitness of the chromosome"""
+    """Compute fitness of the chromosome.
+    Returns fitness, feasibility and route"""
     route, cost = join_algorithm(chromosome, truck_time, drone_time, drone_range)
     logger.debug(f"Route: {route}")
     logger.debug(f"cost: {cost}")
-    return cost
+
+    feasibility = 0
+    # 0 for feas, 1 for infeas type 1, 2 for infeas type 2
+    prev_action = None
+    for action in route:
+        if action[0] == 'LL':
+            _, launch, deliver, land, duration = action
+            # drone range check
+            if duration > drone_range:
+                feasibility = 2
+                break
+            # two consecutive drone nodes check
+            if prev_action and prev_action[0] == 'LL':
+                feasibility = 1
+                break
+        prev_action = action
+    logger.debug(f"route: {route}, feasibility: {feasibility}, fitness: {cost}")
+    return cost, feasibility, route
 
 
 def tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range, k=2):
@@ -350,8 +374,8 @@ def local_search(chromosome, truck_time, drone_time, drone_range):
     logger.info(f"Starting with local search.")
     logger.debug(f"chrom: {chromosome}")
     best_chrom = chromosome
-    best_cost = evaluate(best_chrom, truck_time, drone_time, drone_range)
-    max_attempts = 5  # todo how much?
+    best_cost, _, _ = evaluate(best_chrom, truck_time, drone_time, drone_range)
+    max_attempts = 5  # how much?
     attempts = 0
     improved = True
     local_moves = [local_search_l1  # todo more
@@ -360,7 +384,7 @@ def local_search(chromosome, truck_time, drone_time, drone_range):
         improved = False
         move = random.choice(local_moves)
         new_chrom = move(best_chrom)
-        new_cost = evaluate(new_chrom, truck_time, drone_time, drone_range)
+        new_cost, _, _ = evaluate(new_chrom, truck_time, drone_time, drone_range)
         if new_cost < best_cost:
             best_cost = new_cost
             best_chrom = new_chrom
@@ -385,11 +409,48 @@ def local_search_l1(chromosome):
     return chrom
 
 
+def repair(chromosome, truck_time, drone_time, drone_range, p_repair=0.5):
+    """
+    Repair infeasible chromosome by converting drone nodes to truck nodes
+    based on violations detected in join_algorithm.
+    """
+    # copy the chromosome
+    chrom = chromosome[:]
+    logger.debug(f"chromosome: {chrom}")
+    # join algorithm for flights
+    route, _ = join_algorithm(chrom, truck_time, drone_time, drone_range)
+    logger.debug(f"route: {route}")
+    # violating drone nodes
+    violating_nodes = set()
+    prev_action = None
+
+    for action in route:
+        if action[0] == 'LL':
+            _, launch, deliver, land, duration = action
+            # drone range
+            if duration > drone_range:
+                violating_nodes.add(deliver)
+
+            if prev_action and prev_action[0] == 'LL':
+                # two consecutive drone nodes
+                violating_nodes.add(deliver)
+        prev_action = action
+
+    # repair with probability p_repair
+    for i, g in enumerate(chrom):
+        if abs(g) in violating_nodes and g < 0:
+            if random.random() < p_repair:
+                chrom[i] = abs(g)
+    logger.debug(f"repaired chromosome: {chromosome}")
+    return chrom
+
+
 def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, drone_range=float('inf')):
     drone_speed = 2 * truck_speed
-    feasible = {}
-    infeasible_1 = {}
-    infeasible_2 = {}
+    feasible_pop = []
+    infeasible_1_pop = []
+    infeasible_2_pop = []
+    max_no_improve = 2  # ItNI
 
     # TSP
     #route, cost = solve_tsp_local_search(truck_time)
@@ -417,39 +478,88 @@ def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, 
             drone_time_matrix[i][j] = dist / drone_speed
 
     fitnesses = []
+    best_fitness = float('inf')  # min makespan
+    best_solution = None  # chromosome that gave the best result
+    best_route = None  # list of actions (MT/LL) for the best chromosome
     with open("mutations.txt", "w", encoding="utf-8") as file:
 
         for g in range(generations):
             # evaluate fitness of all chromosomes
-            fitnesses = [evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range) for chrom in population]
+            # fitnesses = [evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range) for chrom in population]
+            for chrom in population:
+                fit, feas, route = evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range)
+                fitnesses.append(fit)
             logger.info(fitnesses)
             file.write(str(fitnesses))
-        # tournament selection
-        p1 = tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range)
-        logger.info(f"first parent: {p1}")  # [3, -1, 2]
-        p2 = tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range)
-        while p1 == p2:
-            p2 = tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range)
-        logger.info(f"second parent: {p2}")  # [2, -1, 3]
-        file.write(str(p1))
-        file.write(str(p2))
-        # todo: if still p1==p2 ?
 
-        # crossover -> new child
-        child = tox1(p1, p2) if random.random() < 0.5 else tox2(p1, p2)
-        logger.debug(f"child: {child}")  # child: [-1, 2, -3]
-        file.write(str(child))
-        # mutation
-        if random.random() < 0.5:
-            child = sign_mutation(child)
-        else:
-            child = tour_mutation(child)
-        logger.debug(f"child after mutation: {child}")  # child after mutation: [-1, 2, 3]
-        file.write(str(child))
-        # local search
-        child = local_search(child, truck_time_matrix, drone_time_matrix, drone_range)
-        logger.debug(f"child after local search: {child}")
-        file.write(str(child))
+            # tournament selection
+            p1 = tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range)
+            logger.info(f"first parent: {p1}")  # [3, -1, 2]
+            p2 = tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range)
+            while p1 == p2:
+                p2 = tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range)
+            logger.info(f"second parent: {p2}")  # [2, -1, 3]
+            file.write(str(p1))
+            file.write(str(p2))
+            # if still p1==p2 ?
+
+            # crossover -> new child
+            child = tox1(p1, p2) if random.random() < 0.5 else tox2(p1, p2)
+            logger.debug(f"child: {child}")  # child: [-1, 2, -3]
+            file.write(str(child))
+            # mutation
+            if random.random() < 0.5:
+                child = sign_mutation(child)
+            else:
+                child = tour_mutation(child)
+            logger.debug(f"child after mutation: {child}")  # child after mutation: [-1, 2, 3]
+            file.write(str(child))
+
+            # evaluate child after all mutations
+            fitness, feasible, route = evaluate(child, truck_time_matrix, drone_time_matrix, drone_range)
+
+            # if infeasible -> repair
+            if feasible in [1, 2]:
+                child = repair(child, truck_time_matrix, drone_time_matrix, drone_range, p_repair=0.5)
+                fitness, feasible, route = evaluate(child, truck_time_matrix, drone_time_matrix, drone_range)
+                # if infeasible -> penalty
+                if feasible in [1, 2]:
+                    fitness += 99999  # todo adjust penalties
+            # if feasible
+            if feasible == 0:
+                # local search only for feasible chrom
+                child, fitness = local_search(child, truck_time_matrix, drone_time_matrix, drone_range)
+                logger.debug(f"child after local search: {child}")
+                file.write(str(child))
+                feasible_pop.append((child, fitness))
+                logger.debug(f"fitness: {fitness}")
+                # save the best solutions
+                if fitness < best_fitness:
+                    best_fitness = fitness
+                    best_solution = child
+                    best_route = route  # можно также переоценить: route, _ = join_algorithm(child, ...)
+                    improved = True
+
+            # if infeasible
+            if feasible == 1:
+                infeasible_1_pop.append((child, fitness))
+            if feasible == 2:
+                infeasible_2_pop.append((child, fitness))
+
+            # update population
+            population.append(child)
+            population = sorted(population, key=lambda chrom: evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range)[0])
+            population = population[:population_size]  # keep best
+
+            if not improved:
+                no_improve_count += 1
+            else:
+                no_improve_count = 0
+
+            if no_improve_count >= max_no_improve:
+                break
+
+    return best_solution, best_route, best_fitness
 
 
 if __name__ == "__main__":
@@ -465,7 +575,14 @@ if __name__ == "__main__":
               ]
     n = len(places)  # n=3 (без учёта 0′)
     logger.info(f"For {n} points.")
-    genetic_algorithm(places)
+    chrom, route, fitness = genetic_algorithm(places)
+    # ([3, 2, -1],
+    # (784.21, 0,
+    # [('MT', 1, 4, 359.05), ('MT', 2, 1, 730.26), ('MT', 0, 2, 52.82000000000001), ('LL', 0, 3, 2, 784.21)]))
+    places.append(places[0])
+    visualize_route(places, route)
+
+
 
     # places.append((places[0][0] + 0.00001, places[0][1]))  # move depo by 1 meter
 
