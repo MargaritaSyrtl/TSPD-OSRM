@@ -135,7 +135,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
 
                     # does not discard LL actions even if they are out of bounds
                     if d_flight > drone_range:
-                        penalty = (d_flight - drone_range) * 2  # (for example) todo
+                        penalty = (d_flight - drone_range) * 2  # penalty (for example) todo
                         d_flight += penalty
 
                     # if d_flight <= drone_range:
@@ -381,8 +381,14 @@ def local_search(chromosome, truck_time, drone_time, drone_range):
     max_attempts = 5  # how much?
     attempts = 0
     improved = True
-    local_moves = [local_search_l1  # todo more
-                   ]
+    local_moves = [local_search_l1,
+                   local_search_l2,
+                   local_search_l3,
+                   local_search_l4,
+                   local_search_l5,
+                   local_search_l6,
+                   local_search_l7
+                   ]  # todo more from N
     while improved and attempts < max_attempts:
         improved = False
         move = random.choice(local_moves)
@@ -400,8 +406,9 @@ def local_search(chromosome, truck_time, drone_time, drone_range):
 
 def local_search_l1(chromosome):
     """
-    Choose three consecutive truck nodes and convert the middle one to a drone node
+    Choose three consecutive truck nodes and convert the middle one to a drone node.
     """
+    # if depo and then 2 nodes are truck nodes, but we don't consider depo ??
     chrom = chromosome[:]
     n = len(chrom)
     # find three consecutive truck nodes
@@ -410,6 +417,117 @@ def local_search_l1(chromosome):
             chrom[i+1] = -chrom[i+1]  # convert the middle one to a drone node
             return chrom
     return chrom
+
+
+def local_search_l2(chromosome):
+    """Remove a random drone node and randomly locate it between two consecutive truck nodes as a drone node.
+    """
+    drone_indices = [i for i, x in enumerate(chromosome) if x < 0]
+    truck_positions = [i for i, x in enumerate(chromosome) if x > 0]
+    if not drone_indices or len(truck_positions) < 2:
+        return chromosome
+    # drone node
+    d_idx = random.choice(drone_indices)
+    # remove drone node
+    drone_node = chromosome.pop(d_idx)
+    # insert drone node between truck nodes
+    insert_pos = random.randint(1, len(chromosome) - 1)
+    chromosome.insert(insert_pos, drone_node)
+    return chromosome
+
+
+def local_search_l3(chromosome):
+    """Choose a truck node and a drone node randomly and swap them while keeping the type of each position.
+    """
+    truck_indices = [i for i, x in enumerate(chromosome) if x > 0]
+    drone_indices = [i for i, x in enumerate(chromosome) if x < 0]
+    if not truck_indices or not drone_indices:
+        return chromosome
+    # choose truck and drone node
+    t_idx = random.choice(truck_indices)
+    d_idx = random.choice(drone_indices)
+    # swap
+    chromosome[t_idx], chromosome[d_idx] = chromosome[d_idx], chromosome[t_idx]
+    return chromosome
+
+
+def local_search_l4(chromosome):
+    """Randomly select two arcs from the truck tour and swap them.
+    The truck sequence as well as the drone sequence between the two arcs will be reversed.
+    """
+    truck_positions = [i for i, x in enumerate(chromosome) if x > 0]
+    if len(truck_positions) < 4:
+        return chromosome
+    # select two indices
+    i1, i2 = sorted(random.sample(truck_positions, 2))
+    # reverse arcs
+    chromosome[i1:i2+1] = reversed(chromosome[i1:i2+1])
+    return chromosome
+
+
+def local_search_l5(chromosome):
+    """Randomly choose two drone nodes and swap them while promoting their type to be truck nodes.
+    """
+    drone_indices = [i for i, x in enumerate(chromosome) if x < 0]
+    if len(drone_indices) < 2:
+        return chromosome
+    # select two indices
+    i1, i2 = sorted(random.sample(drone_indices, 2))
+    # swap drone nodes and convert to truck nodes
+    chromosome[i1], chromosome[i2] = abs(chromosome[i2]), abs(chromosome[i1])
+    return chromosome
+
+
+def local_search_l6(chromosome):
+    """Randomly choose two drone nodes, swap them and convert one of them to truck node.
+    """
+    drone_indices = [i for i, x in enumerate(chromosome) if x < 0]
+    if len(drone_indices) < 2:
+        return chromosome
+    # select two indices
+    i1, i2 = random.sample(drone_indices, 2)
+    # swap drone nodes
+    chromosome[i1], chromosome[i2] = chromosome[i2], chromosome[i1]
+    # convert one of them to truck with probability 50%
+    if random.random() < 0.5:
+        chromosome[i1] = abs(chromosome[i1])
+    else:
+        chromosome[i2] = abs(chromosome[i2])
+    return chromosome
+
+
+def local_search_l7(chromosome):
+    """Randomly choose a drone node d and a drone tuple ⟨i,j,k⟩,
+    change j to truck node and insert d as either ⟨i,d,j,k⟩ or ⟨i,j,d,k⟩.
+    """
+    chrom = chromosome[:]
+    drone_indices = [i for i, g in enumerate(chrom) if g < 0]
+    # must be at least 2 drones
+    if len(drone_indices) < 2:
+        return chrom
+
+    # choose drone node d and remove it
+    d_idx = random.choice(drone_indices)
+    d_node = chrom[d_idx]
+    chrom.pop(d_idx)
+
+    # choose the second drone node j and convert it to truck
+    remaining_drone_indices = [i for i, g in enumerate(chrom) if g < 0]
+    if not remaining_drone_indices:
+        chrom.insert(d_idx, d_node)  # if no drones anymore
+        return chrom
+    j_idx = random.choice(remaining_drone_indices)
+    j_node = chrom[j_idx]
+    chrom[j_idx] = abs(j_node)  # convert to truck
+
+    # insert d either before j or after j
+    if random.random() < 0.5:
+        insert_pos = j_idx
+    else:
+        insert_pos = j_idx + 1
+    chrom.insert(insert_pos, d_node)
+    return chrom
+
 
 
 def repair(chromosome, truck_time, drone_time, drone_range, p_repair=0.5):
@@ -440,9 +558,10 @@ def repair(chromosome, truck_time, drone_time, drone_range, p_repair=0.5):
         prev_action = action
 
     # repair with probability p_repair
+    # repair always!
     for i, g in enumerate(chrom):
         if abs(g) in violating_nodes and g < 0:
-            if random.random() < p_repair:
+            #if random.random() < p_repair:
                 chrom[i] = abs(g)
     logger.debug(f"repaired chromosome: {chromosome}")
     return chrom
@@ -608,6 +727,8 @@ if __name__ == "__main__":
     # [('MT', 1, 4, 359.05), ('MT', 2, 1, 730.26), ('MT', 0, 2, 52.82000000000001), ('LL', 0, 3, 2, 784.21)]))
     places.append(places[0])
     logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
+    #if route is None:
+    #    chrom, route, fitness = genetic_algorithm(places)
     visualize_route(places, route)
 
 
