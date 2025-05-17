@@ -199,9 +199,12 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
                 if makespan < best_makespan:
                     optimal_route = actions
                     best_makespan = makespan
-    # todo why route can be none
     logger.debug(f"optimal route: {optimal_route}")
     logger.debug(f"best_makespan: {best_makespan}")
+    if optimal_route is None:
+        logger.warning("No feasible route found in join_algorithm — returning empty route with high cost.")
+        return [], float('inf')
+
     return optimal_route, best_makespan
 
 
@@ -450,18 +453,20 @@ def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, 
     feasible_pop = []
     infeasible_1_pop = []
     infeasible_2_pop = []
-    max_no_improve = 2  # ItNI
+    max_no_improve = 10  # ItNI
 
     # TSP
     #route, cost = solve_tsp_local_search(truck_time)
     #logger.debug(f"Route for TSP: {route}")
     #logger.debug(f"Time for TSP: {cost}")
-    # TSPD
-    #tspd = [1, -3, 2]
 
-    # init
+    # init TSPD
     n = len(places) - 1
     population = generate_initial_population(n, population_size)
+    # fallback values
+    fallback_solution = None
+    fallback_route = None
+    fallback_fitness = float('inf')
 
     # for join algo
     places.append(places[0])
@@ -476,11 +481,22 @@ def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, 
             dist = euclidean_distance(places[i], places[j])
             truck_time_matrix[i][j] = dist / truck_speed
             drone_time_matrix[i][j] = dist / drone_speed
-
     fitnesses = []
     best_fitness = float('inf')  # min makespan
     best_solution = None  # chromosome that gave the best result
     best_route = None  # list of actions (MT/LL) for the best chromosome
+    improved = 0
+    no_improve_count = 0
+
+    # Evaluate initial population and set fallback
+    for chrom in population:
+        fit, feas, route = evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range)
+        fitnesses.append(fit)
+        if fit < fallback_fitness:
+            fallback_fitness = fit
+            fallback_solution = chrom
+            fallback_route = route
+
     with open("mutations.txt", "w", encoding="utf-8") as file:
 
         for g in range(generations):
@@ -517,7 +533,6 @@ def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, 
 
             # evaluate child after all mutations
             fitness, feasible, route = evaluate(child, truck_time_matrix, drone_time_matrix, drone_range)
-
             # if infeasible -> repair
             if feasible in [1, 2]:
                 child = repair(child, truck_time_matrix, drone_time_matrix, drone_range, p_repair=0.5)
@@ -558,6 +573,10 @@ def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, 
 
             if no_improve_count >= max_no_improve:
                 break
+    # If no feasible solution was found, return fallback
+    #if best_solution is None:
+    #    logger.warning("No feasible solution found. Returning best from initial population.")
+    #    return fallback_solution, fallback_route, fallback_fitness
 
     return best_solution, best_route, best_fitness
 
@@ -567,11 +586,19 @@ if __name__ == "__main__":
     truck_speed = 10
     drone_range = float('inf')
 
-    places = [(50.149, 8.666),  # idx=0
-              (50.145, 8.616),  # idx=1
-              (50.147, 8.668),  # idx=2
-              (50.146, 8.777),
-              # (50.155, 7.777)
+    #places = [(50.149, 8.666),  # idx=0
+    #          (50.145, 8.616),  # idx=1
+    #          (50.147, 8.668),  # idx=2
+    #          (50.146, 8.777),
+    #          # (50.155, 7.777)
+    #          ]
+
+    places = [(50.116237219723246, 8.675090069320808),
+              (50.117308811831265, 8.655780559661203),
+              (50.098311570186645, 8.674780332636217),
+              (50.10687159272978, 8.686167957918643),
+              (50.10399599096225, 8.66606177300608),
+              (50.11114186944436, 8.689019112449396)
               ]
     n = len(places)  # n=3 (без учёта 0′)
     logger.info(f"For {n} points.")
@@ -580,6 +607,7 @@ if __name__ == "__main__":
     # (784.21, 0,
     # [('MT', 1, 4, 359.05), ('MT', 2, 1, 730.26), ('MT', 0, 2, 52.82000000000001), ('LL', 0, 3, 2, 784.21)]))
     places.append(places[0])
+    logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
     visualize_route(places, route)
 
 
@@ -636,11 +664,8 @@ if __name__ == "__main__":
     #    logger.debug(
     #        f"USED: Start: {op['start']}, drone node: {op['drone']}, end: {op['end']}, time: {round(op['duration'], 2)} sec")
 
-    # todo
-    route_tspd = [('MT', 3, 4, 0), ('MT', 2, 3, 776.78), ('MT', 0, 2, 803.1899999999999), ('LL', 0, 1, 2, 365.13)]
 
-
-    #places.append(places[0])  # depo needed for join ! todo
+    #places.append(places[0])  # depo needed for join
     #optimal_route, makespan = join_algorithm(chromosome2, truck_time_matrix, drone_time_matrix, drone_range=float('inf'))
     #visualize_route(places, optimal_route)
 
