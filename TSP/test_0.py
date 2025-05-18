@@ -72,12 +72,16 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
 
     logger.debug(len(truck_nodes) - 1)
     logger.debug(range(len(truck_nodes) - 1))
-    all_options = []
+    S = {}  # S[i] – множество клиентов, обслуженных, если грузовик стоит сейчас в i
+    S[n + 1] = set()  # в фиктивной 0′ уже всё обслужено
     # move truck from i to j
     #for idx in reversed(range(len(truck_nodes) - 1)):  # im, …, i1, 0 from the end of the route to the beginning including the depot at the end
     for idx in range(len(truck_nodes) - 2, -1, -1):
         best_mt = None
         best_ll = None
+        served_MT = set()
+        served_LL = set()
+
         logger.debug(f"idx {idx}")  # i_idx индекс текущего узла в списке truck_nodes
         i = truck_nodes[idx]  # the truck can start moving from truck_nodes[idx]
         logger.debug(f"truck_nodes[{idx}]={i}")
@@ -88,9 +92,18 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
         logger.info(f"Start MT")
         CMT_best = float('inf')
         # all truck nodes after i
-
-        for j in truck_nodes[idx + 1:]:  # все truck-узлы правее
-            served_mt = {}
+        i_full_idx = full_seq.index(i)  # позиция текущего truck-узла в full_seq
+        logger.debug(f"current truck node in full seg: {i_full_idx}")
+        d_idx = next((k for k in range(i_full_idx + 1, len(full_seq))
+                      if node_types.get(full_seq[k]) == 'drone'),
+                     len(full_seq))  # позиция d(i) либо len==0′
+        # T()
+        T_set = [u for u in truck_nodes  # именно T(i)
+                 if pos[i] < pos[u] < d_idx]
+        logger.debug(f"Tset: {T_set}")
+        for j in T_set:
+        #for j in truck_nodes[idx + 1:]:  # все truck-узлы правее
+            cand = S[j] | set()
             logger.debug(f"truck_nodes[{idx + 1:}]={j}")
             # j – номер truck-узла-кандидата
             #if j == n + 1 and any(  # n+1 – это 0′
@@ -100,7 +113,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             #    continue  # ещё есть необслуженные truck, 0′ запрещён
             if j == n + 1 and truck_nodes[idx + 1:-1]:
                 continue  # ещё есть необслуженные truck, 0′ запрещён
-            # Если мы пытаемся сделать ход MT прямо в 0′, но справа от i остаются ещё непосещённые truck-клиенты, такой ход запрещаем («continue»).
+            # Если мы пытаемся сделать ход MT прямо в 0′, но справа от i остаются ещё непосещённые truck-клиенты, такой ход запрещаем
             #if full_seq[j] == full_seq[-1] and any(
             #        full_seq[k] in node_types and node_types[full_seq[k]] == 'truck'
             #        for k in range(i + 1, j)
@@ -115,24 +128,18 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             logger.debug(f"C[{j}]={C.get(j, float('inf'))}")  # minimum time from j to the end of the route
             CMT = min(CMT, t_time + C.get(j, float('inf')))
             logger.debug(f"C_MT= {CMT}")
-            if CMT < CMT_best:
+
+            if (CMT < CMT_best or
+                    abs(t_time + C[j] - CMT_best) < 1e-9 and
+                    len(cand) > len(served_MT)):
                 CMT_best = CMT
-                # best_mt = ('MT', full_seq[i], full_seq[j], CMT)
-                logger.debug(f"best mt={best_mt}")  # ('MT', 0, 2, 14.25)
                 best_mt = ('MT', i, j, CMT)
-                # all_options.append((CMT, best_mt))
-        if best_mt:
-            all_options.append((CMT_best, best_mt))
-            #served_mt[j] = CMT
-            #logger.debug(f"served_mt={served_mt}")
+                served_MT = cand  # cand может быть ∅
 
         # LL
         logger.info(f"Start LL")
         CLL_best_time = float('inf')
         CLL_best_action = None  # ('LL', i, deliver, k, cost)
-
-        i_full_idx = full_seq.index(i)  # позиция текущего truck-узла в full_seq
-        logger.debug(f"current truck node in full seg: {i_full_idx}")
         # find d(i)
         try:
             d_idx = next(j for j in range(i_full_idx + 1, len(full_seq))
@@ -167,6 +174,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             # loop for k ∈ E⁺(i)
             CLL = float('inf')
             for k in candidate_k:
+                cand = S[k] | {deliver}
                 d_flight = (drone_time[i][deliver] +
                         drone_time[deliver][k])
                 if d_flight > drone_range:  # узел не в E⁺(i)
@@ -178,31 +186,35 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
                 logger.debug(f"total: {total}")
                 CLL = min(CLL, total)  # Храним и минимальное время, и саму пару узлов
                 logger.debug(f"CLL={CLL}")
-                if total < CLL_best_time:  # нашли лучший вариант
+
+                if cand and (total < CLL_best_time or
+                             abs(total - CLL_best_time) < 1e-9 and
+                             len(cand) > len(served_LL)):
                     CLL_best_time = total
                     CLL_best_action = ('LL', i, deliver, k, total)
+                    served_LL = cand
 
         CLL = CLL_best_time
         logger.debug(f"best time for LL: {CLL_best_time}")
         logger.debug(f"best action for LL: {CLL_best_action}")
-        if CLL_best_action is not None:
-            all_options.append((CLL, CLL_best_action))  # Попадает только один — действительно лучший LL для текущего i
         best_ll = CLL_best_action  # чтобы action_trace[i] был корректным, переопределяется внутри каждого truck-узла, поэтому всегда актуален
 
         logger.info(f"best values: {best_mt}, {best_ll}")  # ('MT', 0, 2, 28.5), ('LL', 0, 1, 3, 356.98)
         # C[i] = min(CMT, CLL)
         logger.debug(f"compare: {CMT} vs {CLL}")
-        if CMT <= CLL:
-            C[i] = CMT
-            action_trace[i] = best_mt
-        else:
+
+        if best_ll and (CLL < CMT or
+                        abs(CLL - CMT) < 1e-9 and
+                        len(served_LL) > len(served_MT)):
             C[i] = CLL
+            S[i] = served_LL
             action_trace[i] = best_ll
-        # logger.debug(f"C[{i}] at the end: {C[i]}")
-        logger.debug(f"all_options: {all_options}")
+        else:
+            C[i] = CMT
+            S[i] = served_MT
+            action_trace[i] = best_mt
 
     # calculate the optimal route
-    # --- после завершения DP-цикла ------------------------------------------
     route = []  # список действий ('MT', i, k, cost)  или  ('LL', i, d, k, cost)
     cur = 0  # начинаем с депо
     while cur != n + 1:  # пока не дошли до 0′
@@ -249,7 +261,9 @@ if __name__ == "__main__":
               (50.145, 8.616),  # idx=1
               (50.147, 8.668),  # idx=2
               (50.146, 8.777),
-              #(50.155, 7.777)
+              (50.155, 7.777),
+              (50.177, 8.456),
+              (50.200, 8.600)
               ]
 
     places.append(places[0])  # depo
@@ -274,7 +288,7 @@ if __name__ == "__main__":
     logger.debug(f"truck_time_matrix {truck_time_matrix}")
     logger.debug(f"drone_time_matrix {drone_time_matrix}")
 
-    chromosome1 = [1, -2, 3]
+    chromosome1 = [1, -2, 3, -4, 5, 6]
 
     optimal_route, makespan = join_algorithm(chromosome1, truck_time_matrix, drone_time_matrix, drone_range=float('inf'))
     logger.debug(optimal_route)
