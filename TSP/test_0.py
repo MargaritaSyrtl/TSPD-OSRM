@@ -1,7 +1,7 @@
 import math
 from loguru import logger
-from itertools import combinations
 import folium
+from folium.features import DivIcon
 
 
 def euclidean_distance(coord1, coord2):
@@ -184,7 +184,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
                 logger.debug(f"C[{k}]={C.get(k)}")
                 total = max(d_flight, t_drive) + C.get(k, float('inf'))
                 logger.debug(f"total: {total}")
-                CLL = min(CLL, total)  # Храним и минимальное время, и саму пару узлов
+                CLL = min(CLL, total)  # save the pair of nodes and the min time
                 logger.debug(f"CLL={CLL}")
 
                 if cand and (total < CLL_best_time or
@@ -197,7 +197,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
         CLL = CLL_best_time
         logger.debug(f"best time for LL: {CLL_best_time}")
         logger.debug(f"best action for LL: {CLL_best_action}")
-        best_ll = CLL_best_action  # чтобы action_trace[i] был корректным, переопределяется внутри каждого truck-узла, поэтому всегда актуален
+        best_ll = CLL_best_action  # чтобы action_trace[i] был корректным, переопределяется внутри каждого truck-узла
 
         logger.info(f"best values: {best_mt}, {best_ll}")  # ('MT', 0, 2, 28.5), ('LL', 0, 1, 3, 356.98)
         # C[i] = min(CMT, CLL)
@@ -215,14 +215,14 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             action_trace[i] = best_mt
 
     # calculate the optimal route
-    route = []  # список действий ('MT', i, k, cost)  или  ('LL', i, d, k, cost)
-    cur = 0  # начинаем с депо
-    while cur != n + 1:  # пока не дошли до 0′
-        act = action_trace[cur]  # лучшее действие из узла cur
+    route = []  # actions ('MT', i, k, cost) / ('LL', i, d, k, cost)
+    cur = 0  # start with depo
+    while cur != n + 1:  # till depo
+        act = action_trace[cur]
         route.append(act)
-        cur = act[2] if act[0] == 'MT' else act[3]  # следующий truck-узел k
+        cur = act[2] if act[0] == 'MT' else act[3]  # next truck node k
 
-    makespan = C[0]  # оптимальный makespan уже посчитан
+    makespan = C[0]  # best makespan
 
     logger.debug(f"optimal route: {route}")
     logger.debug(f"best_makespan: {makespan}")
@@ -230,6 +230,77 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
 
 
 def visualize_route(places, route):
+    # depo as centre
+    m = folium.Map(location=places[0], zoom_start=14)
+    n_last = len(places) - 1
+    # marker for each node (as given at the beginning)
+    for idx, (lat, lon) in enumerate(places):
+        if idx == n_last:
+            continue
+        folium.Marker(
+            [lat, lon],
+            tooltip=f"node {idx}",
+            icon=DivIcon(
+                icon_size=(20, 20),
+                icon_anchor=(10, 10),
+                html=f"""
+                            <div style="background:blue; 
+                                       color:white; 
+                                       text-align:center; 
+                                       border-radius:10px; 
+                                       width:20px; height:20px;
+                                       line-height:20px;">
+                                       {idx}
+                            </div>"""
+            )
+        ).add_to(m)
+
+    truck_nodes = [0]  # start at the depo
+    for act in route:
+        next_node = act[2] if act[0] == "MT" else act[3]   # MT: j  |  LL: k
+        truck_nodes.append(next_node)
+
+    # if the route does not explicitly go to the depo -> add route to the depo
+    if truck_nodes[-1] != len(places) - 1:
+        truck_nodes.append(len(places) - 1)
+
+    truck_points = [places[i] for i in truck_nodes]
+
+    # truck route
+    folium.PolyLine(
+        truck_points,
+        color="blue",
+        weight=4,
+        tooltip="Truck path"
+    ).add_to(m)
+    # labels for truck route
+    for a, b in zip(truck_nodes, truck_nodes[1:]):
+        folium.PolyLine(
+            [places[a], places[b]],
+            color="blue",
+            weight=4,
+            opacity=0,  # invisible line
+            tooltip=f"Truck {a}->{b}"
+        ).add_to(m)
+
+    # drone route
+    for action in route:
+        if action[0] == "LL":
+            _, launch, deliver, land, _ = action
+            drone_points = [places[launch], places[deliver], places[land]]
+            folium.PolyLine(
+                drone_points,
+                color="green",
+                weight=2.5,
+                dash_array="5,10",
+                tooltip=f"Drone {launch}->{deliver}->{land}"
+            ).add_to(m)
+
+    m.save("route_map.html")
+    return True
+
+
+def visualize_route_old(places, route):
     # depo
     center = places[0]
     m = folium.Map(location=center, zoom_start=14)
@@ -257,17 +328,17 @@ if __name__ == "__main__":
     drone_speed = 20  # m/s
     truck_speed = 10
 
-    places = [(50.149, 8.666),  # idx=0
-              (50.145, 8.616),  # idx=1
-              (50.147, 8.668),  # idx=2
-              (50.146, 8.777),
-              (50.155, 7.777),
-              (50.177, 8.456),
-              (50.200, 8.600)
+    places = [(50.149, 8.666),  # idx=0 = 6
+              (50.148, 8.616),  # idx=1
+              (50.130, 8.668),  # idx=2
+              (50.146, 8.777),  # idx=3
+              (50.160, 8.750),  # idx=4
+              (50.164, 8.668),  # idx=5
+              # (50.177, 8.456),
+              #(50.200, 8.600)
               ]
 
     places.append(places[0])  # depo
-    # places.append((places[0][0] + 0.00001, places[0][1]))  # move depo by 1 meter
 
     generations = 1  # number of iterations
     population_size = 2  # number of agents
@@ -288,10 +359,9 @@ if __name__ == "__main__":
     logger.debug(f"truck_time_matrix {truck_time_matrix}")
     logger.debug(f"drone_time_matrix {drone_time_matrix}")
 
-    chromosome1 = [1, -2, 3, -4, 5, 6]
+    chromosome1 = [1, -2, 3, 4, -5]
 
     optimal_route, makespan = join_algorithm(chromosome1, truck_time_matrix, drone_time_matrix, drone_range=float('inf'))
     logger.debug(optimal_route)
     logger.debug(makespan)
     visualize_route(places, optimal_route)
-
