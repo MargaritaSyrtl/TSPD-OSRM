@@ -41,16 +41,21 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
     logger.debug(f"nodes_types {node_types}")
     all_nodes_to_serve = set(i for i in range(1, n + 1))  # всё, кроме депо
     logger.debug(all_nodes_to_serve)
+    # truck-узлы в порядке следования во full_seq
     truck_nodes = [0]
     drone_nodes = []
-    for i in range(1, n + 1):  # n+1 virtual node -> 3=0
-        if node_types.get(i) == "truck":
-            truck_nodes.append(i)
-        if node_types.get(i) == "drone":
-            drone_nodes.append(i)
+    #for i in range(1, n + 1):  # n+1 virtual node -> 3=0
+    #    if node_types.get(i) == "truck":
+    #        truck_nodes.append(i)
+    for node in full_seq[1:-1]:  # without 0 and (n+1)
+        if node_types.get(node) == 'truck':
+            truck_nodes.append(node)
+        if node_types.get(node) == "drone":
+            drone_nodes.append(node)
     truck_nodes.append(n + 1)  # add virtual end node e.g. (0')=(3)
     logger.debug(f"truck_nodes {truck_nodes}")
     logger.debug(f"drone_nodes {drone_nodes}")
+    last_real_truck = truck_nodes[-2]  # предпоследний элемент, т.к. [-1] == n+1 (0′)
 
     # cumulative time on truck route
     pos_truck = {node: idx for idx, node in enumerate(truck_nodes)}  # for each truck node: its position in truck_nodes
@@ -173,8 +178,22 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             candidate_k = [
                 u for u in truck_nodes
                 if d_idx < pos[u] <= dplus_idx  # O(1) вместо O(n)
+                and (u != n + 1 or i == last_real_truck)
             ]
             logger.debug(f"E+: {candidate_k}")
+
+            ########
+            # candidate_k уже содержит { …, n+1 } при необходимости
+            #if (n + 1) in candidate_k:
+            #    still_unserved = any(
+            #        # ни сам n+1, ни уже проеханные узлы i не считаются
+            #        node_types.get(t) == 'truck' and t not in S.get(i, set())
+            #        for t in truck_nodes[pos_truck[i] + 1: -1]  # все truck между i и 0′
+             #   )
+             #   if still_unserved:
+             #       candidate_k.remove(n + 1)
+            ######
+
             # loop for k ∈ E⁺(i)
             CLL = float('inf')
             for k in candidate_k:
@@ -363,7 +382,7 @@ if __name__ == "__main__":
     logger.debug(f"truck_time_matrix {truck_time_matrix}")
     logger.debug(f"drone_time_matrix {drone_time_matrix}")
 
-    chromosome1 = [1, -2, 3, 4, -5]
+    chromosome1 = [4, -3, 2, 5, -1]
 
     optimal_route, makespan = join_algorithm(chromosome1, truck_time_matrix, drone_time_matrix, drone_range=float('inf'))
     logger.debug(optimal_route)
