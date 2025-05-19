@@ -52,15 +52,19 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
     logger.debug(f"truck_nodes {truck_nodes}")
     logger.debug(f"drone_nodes {drone_nodes}")
 
-    # кумулятивное время по truck-маршруту
-    pos_truck = {node: idx for idx, node in enumerate(truck_nodes)}
-    logger.debug(f"pos truck: {pos_truck}")
-    prefix = [0.0]  # prefix[k] – совокупное время от депо до truck_nodes[k]
-    for p, q in zip(truck_nodes, truck_nodes[1:]):
+    # cumulative time on truck route
+    pos_truck = {node: idx for idx, node in enumerate(truck_nodes)}  # for each truck node: its position in truck_nodes
+    logger.debug(f"pos truck: {pos_truck}")  # pos truck: {0: 0, 1: 1, 3: 2, 4: 3, 6: 4}
+    prefix = [0.0]  # prefix[k] – total time from depot to truck_nodes[k]
+    for p, q in zip(truck_nodes, truck_nodes[1:]):  # consecutive pairs
         prefix.append(prefix[-1] + truck_time[p][q])
+        # truck_time[p][q] - time of direct movement along the matrix between neighbors
+        # prefix[-1] - already accumulated time to node p
     logger.debug(f"prefix: {prefix}")
 
     def tau(a, b):  # a,b ∈ truck_nodes,  pos_truck[a] < pos_truck[b]
+        """Returns the actual time of movement of the truck between nodes a and b in the already specified order.
+        """
         return prefix[pos_truck[b]] - prefix[pos_truck[a]]
 
     # DP
