@@ -1,12 +1,9 @@
-import math
 from loguru import logger
-from itertools import combinations
 import folium
-import numpy as np
-from python_tsp.heuristics import solve_tsp_local_search
-from scipy.spatial.distance import cdist
-import random
 from folium.features import DivIcon
+import random
+import math
+import subprocess, pathlib
 
 
 def euclidean_distance(coord1, coord2):
@@ -33,7 +30,6 @@ def euclidean_distance(coord1, coord2):
     return round(distance, 1)
 
 
-
 def join_algorithm(chromosome, truck_time, drone_time, drone_range):
     w1 = 2.0
     w2 = 2.0
@@ -47,9 +43,9 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
 
     node_types = {abs(x): 'truck' if x >= 0 else 'drone' for x in chromosome}
     logger.debug(f"nodes_types {node_types}")
-    all_nodes_to_serve = set(i for i in range(1, n + 1))  # всё, кроме депо
+    all_nodes_to_serve = set(i for i in range(1, n + 1))
     logger.debug(all_nodes_to_serve)
-    # truck-узлы в порядке следования во full_seq
+    # truck nodes in order of succession in full_seq
     truck_nodes = [0]
     drone_nodes = []
     #for i in range(1, n + 1):  # n+1 virtual node -> 3=0
@@ -63,7 +59,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
     truck_nodes.append(n + 1)  # add virtual end node e.g. (0')=(3)
     logger.debug(f"truck_nodes {truck_nodes}")
     logger.debug(f"drone_nodes {drone_nodes}")
-    last_real_truck = truck_nodes[-2]  # предпоследний элемент, т.к. [-1] == n+1 (0′)
+    last_real_truck = truck_nodes[-2]  # penultimate element, [-1] == n+1 (0′)
 
     # cumulative time on truck route
     pos_truck = {node: idx for idx, node in enumerate(truck_nodes)}  # for each truck node: its position in truck_nodes
@@ -89,17 +85,16 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
 
     logger.debug(len(truck_nodes) - 1)
     logger.debug(range(len(truck_nodes) - 1))
-    S = {}  # S[i] – множество клиентов, обслуженных, если грузовик стоит сейчас в i
-    S[n + 1] = set()  # в фиктивной 0′ уже всё обслужено
+    S = {}  # S[i] – the number of nodes served if the truck is now in i
+    S[n + 1] = set()  # in the virtual 0' everything has already been served
     # move truck from i to j
-    #for idx in reversed(range(len(truck_nodes) - 1)):  # im, …, i1, 0 from the end of the route to the beginning including the depot at the end
     for idx in range(len(truck_nodes) - 2, -1, -1):
         best_mt = None
         best_ll = None
         served_MT = set()
         served_LL = set()
 
-        logger.debug(f"idx {idx}")  # i_idx индекс текущего узла в списке truck_nodes
+        logger.debug(f"idx {idx}")  # i_idx index of the current node in the truck_nodes
         i = truck_nodes[idx]  # the truck can start moving from truck_nodes[idx]
         logger.debug(f"truck_nodes[{idx}]={i}")
         CMT = float('inf')  # Move Truck
@@ -109,39 +104,25 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
         logger.info(f"Start MT")
         CMT_best = float('inf')
         # all truck nodes after i
-        i_full_idx = full_seq.index(i)  # позиция текущего truck-узла в full_seq
+        i_full_idx = full_seq.index(i)  # position of current truck node in full_seq
         logger.debug(f"current truck node in full seg: {i_full_idx}")
         d_idx = next((k for k in range(i_full_idx + 1, len(full_seq))
                       if node_types.get(full_seq[k]) == 'drone'),
-                     len(full_seq))  # позиция d(i) либо len==0′
+                     len(full_seq))  # position d(i) or len==0′
         # T()
-        T_set = [u for u in truck_nodes  # именно T(i)
+        T_set = [u for u in truck_nodes
                  if pos[i] < pos[u] < d_idx]
         logger.debug(f"Tset: {T_set}")
-        for j in T_set:
-        #for j in truck_nodes[idx + 1:]:  # все truck-узлы правее
-            # cand = S[j] | set()
+        for j in T_set:  # truck nodes to the right
             cand = S.get(j, set()).copy()
             logger.debug(f"truck_nodes[{idx + 1:}]={j}")
-            # j – номер truck-узла-кандидата
-            #if j == n + 1 and any(  # n+1 – это 0′
-            #        t not in (n + 1,)  # пропустить сам 0′
-            #        for t in truck_nodes[idx + 1:-1]  # все truck после i и ДО 0′
-            #):
-            #    continue  # ещё есть необслуженные truck, 0′ запрещён
+            # j – truck node-candidate
             if j == n + 1 and truck_nodes[idx + 1:-1]:
-                continue  # ещё есть необслуженные truck, 0′ запрещён
-            # Если мы пытаемся сделать ход MT прямо в 0′, но справа от i остаются ещё непосещённые truck-клиенты, такой ход запрещаем
-            #if full_seq[j] == full_seq[-1] and any(
-            #        full_seq[k] in node_types and node_types[full_seq[k]] == 'truck'
-            #        for k in range(i + 1, j)
-            #):
-            #    continue  # skip jump to the end ???
+                continue  # if there are unserviced nodes, 0′ forbidden
 
-            # i, j - сами номера узлов, поэтому к матрицам времени обращаемся напрямую
-            # t_time = truck_time[i][j]  # время пути грузовика i→j
-            t_time = tau(i, j)  # время пути грузовика i→j
-            # t_time = truck_time[full_seq[i]][full_seq[j]]
+            # i, j - node numbers
+            # t_time = truck_time[i][j]
+            t_time = tau(i, j)  # truck travel time i→j
             logger.debug(f"time between {i} and {j} = {t_time}")
             logger.debug(f"C[{j}]={C.get(j, float('inf'))}")  # minimum time from j to the end of the route
             CMT = min(CMT, t_time + C.get(j, float('inf')))
@@ -152,7 +133,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
                     len(cand) > len(served_MT)):
                 CMT_best = CMT
                 best_mt = ('MT', i, j, CMT)
-                served_MT = cand  # cand может быть ∅
+                served_MT = cand
 
         # LL
         logger.info(f"Start LL")
@@ -163,7 +144,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             d_idx = next(j for j in range(i_full_idx + 1, len(full_seq))
                          if node_types.get(full_seq[j]) == 'drone')
         except StopIteration:
-            # справа от i нет drone-узлов  ⇒  LL недоступен
+            # there is no drone nodes right from the i
             CLL_best_time = float('inf')
             CLL_best_action = None
             logger.debug("no drone after i → skip LL")
@@ -171,17 +152,13 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
 
         if d_idx is not None:
             deliver = full_seq[d_idx]
-
-        #d_idx = next(j for j in range(idx + 1, len(full_seq))
-        #             if node_types.get(full_seq[j]) == 'drone')
-        #deliver = full_seq[d_idx]  # номер узла d(i)
             logger.debug(f"d: {deliver}")
             # find d⁺(i) (next drone node after d(i))
             try:
                 dplus_idx = next(j for j in range(d_idx + 1, len(full_seq))
                              if node_types.get(full_seq[j]) == 'drone')
             except StopIteration:
-                dplus_idx = len(full_seq) - 1  # это 0′ в вашем full_seq
+                dplus_idx = len(full_seq) - 1  # 0′ in full_seq
             logger.debug(f"next d: {dplus_idx}")
             # form E⁺(i)
             candidate_k = [u for u in truck_nodes
@@ -191,17 +168,18 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             # loop for k ∈ E⁺(i)
             CLL = float('inf')
             for k in candidate_k:
-                # cand = S[k] | {deliver}
                 cand = S.get(k, set()).union({deliver})
                 drone_leg = drone_time[i][deliver]
                 consec_penalty = 0.0
                 cur_d = deliver
+                # penalties
+                # w1 if consecutive drone nodes
                 while pos[cur_d] + 1 < pos[k] and node_types.get(full_seq[pos[cur_d] + 1]) == 'drone':
                     nxt = full_seq[pos[cur_d] + 1]
                     consec_penalty += w1 * drone_time[cur_d][nxt]
                     cur_d = nxt
                 drone_leg += consec_penalty + drone_time[cur_d][k]
-                # штраф за превышение дальности
+                # w2 if flight range exceeded
                 drone_leg_pen = drone_leg + w2 * max(0.0, drone_leg - drone_range)
 
                 # d_flight = (drone_time[i][deliver] + drone_time[deliver][k])
@@ -222,7 +200,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
         CLL = CLL_best_time
         logger.debug(f"best time for LL: {CLL_best_time}")
         logger.debug(f"best action for LL: {CLL_best_action}")
-        best_ll = CLL_best_action  # чтобы action_trace[i] был корректным, переопределяется внутри каждого truck-узла
+        best_ll = CLL_best_action
 
         logger.info(f"best values: {best_mt}, {best_ll}")  # ('MT', 0, 2, 28.5), ('LL', 0, 1, 3, 356.98)
         # C[i] = min(CMT, CLL)
@@ -239,14 +217,13 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             S[i] = served_MT
             action_trace[i] = best_mt
         else:
-            # ни MT, ни LL: узел недостижим — Type-1 infeasible
+            # Type-1 infeasible
             C[i] = float('inf')
-            # action_trace[i] НЕ заполняем
-            continue                        # берём следующий i
+            continue  # next i
 
     # calculate the optimal route
     if 0 not in action_trace or math.isinf(C[0]):
-        return [], float('inf')  # хромосома infeasible-1
+        return [], float('inf')  # Type-1 infeasible
 
     route = []  # actions ('MT', i, k, cost) / ('LL', i, d, k, cost)
     cur = 0  # start with depo
@@ -658,29 +635,30 @@ def repair(chromosome, truck_time, drone_time, drone_range, p_repair=0.5):
     return chrom
 
 
-def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, drone_range=float('inf')):
+def genetic_algorithm(places, drone_range, generations=1, population_size=3, truck_speed=10):
+
+    # init TSP with LKH
+    tsp_file = write_tsplib(places, name="demo", fname="demo.tsp")
+    par_file = write_par(tsp_file, "demo.par", runs=1)
+    lkh_tour = run_lkh(par_file, exe_path="/usr/local/bin/LKH")
+    logger.info(f"LKH tour: {lkh_tour}")
+    tsp_tour = rotate_to_start(lkh_tour, start=0)
+    # tsp_tour = [1, 5, 2, 3, 4]  # for test
+    logger.info(f"init TSP tour: {tsp_tour}")
+
     drone_speed = 2 * truck_speed
     feasible_pop = []
     infeasible_1_pop = []
     infeasible_2_pop = []
     max_no_improve = 10  # ItNI
 
-    # TSP
-    #route, cost = solve_tsp_local_search(truck_time)
-    #logger.debug(f"Route for TSP: {route}")
-    #logger.debug(f"Time for TSP: {cost}")
+    # n = len(places) - 1
+    # population = generate_initial_population(n, population_size)
 
-    # init TSPD
-    n = len(places) - 1
-    population = generate_initial_population(n, population_size)
-    # fallback values
-    fallback_solution = None
-    fallback_route = None
-    fallback_fitness = float('inf')
-
-    # for join algo
+    ######
+    # init TSPD with heuristics -> needs to be exact partition
     places.append(places[0])
-    n = len(places) - 1  # n=3 (без учёта 0′)
+    n = len(places) - 1
     logger.info(f"For {n} points.")
     logger.info(f"{places}")
     # init time matrix
@@ -691,6 +669,18 @@ def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, 
             dist = euclidean_distance(places[i], places[j])
             truck_time_matrix[i][j] = dist / truck_speed
             drone_time_matrix[i][j] = dist / drone_speed
+    # form ω0
+    omega0 = partition_tsp_to_tspd(tsp_tour, truck_time_matrix, drone_time_matrix, drone_range)
+    logger.debug(f"omega: {omega0}")
+    # generate subpopulations
+    µ = 3  # population size
+    subpops = generate_initial_population_from_tac(omega0, µ, truck_time_matrix, drone_time_matrix, drone_range)
+    # logger.debug(f"subpops: {subpops}")
+    # merge subpopulations into one list
+    population = [ch for lst in subpops.values() for ch, _ in lst]
+    # logger.debug(f"population: {population}")
+    ######
+
     fitnesses = []
     best_fitness = float('inf')  # min makespan
     best_solution = None  # chromosome that gave the best result
@@ -702,10 +692,6 @@ def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, 
     for chrom in population:
         fit, feas, route = evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range)
         fitnesses.append(fit)
-        if fit < fallback_fitness:
-            fallback_fitness = fit
-            fallback_solution = chrom
-            fallback_route = route
 
     with open("mutations.txt", "w", encoding="utf-8") as file:
 
@@ -768,7 +754,7 @@ def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, 
                 if fitness < best_fitness:
                     best_fitness = fitness
                     best_solution = child
-                    best_route = route  # можно также переоценить: route, _ = join_algorithm(child, ...)
+                    best_route = route
                     improved = True
 
             # if infeasible
@@ -786,33 +772,200 @@ def genetic_algorithm(places, generations=1, population_size=3, truck_speed=10, 
                 no_improve_count += 1
             else:
                 no_improve_count = 0
-
             if no_improve_count >= max_no_improve:
                 break
-    # If no feasible solution was found, return fallback
-    #if best_solution is None:
-    #    logger.warning("No feasible solution found. Returning best from initial population.")
-    #    return fallback_solution, fallback_route, fallback_fitness
     logger.debug(f"{best_solution}, {best_route}, {best_fitness}")
     return best_solution, best_route, best_fitness
+
+
+def run_lkh(par_file, exe_path="./LKH"):
+    proc = subprocess.run([exe_path, par_file],
+                          stdout=subprocess.PIPE,
+                          text=True, check=True)
+    logger.info(proc.stdout)
+    tour = read_tour("result.tour")
+    return tour
+
+
+def read_tour(tour_file):
+    """
+    Reads SECTION in form:
+    TOUR_SECTION
+    1 4 3 2 5 6 0
+    -1
+    EOF
+    """
+    lines = pathlib.Path(tour_file).read_text().splitlines()
+    start = lines.index("TOUR_SECTION") + 1
+    seq = []
+    for s in lines[start:]:
+        v = int(s.split()[0])
+        if v == -1: break
+        seq.append(v-1)     # TSPLIB numbers from 1
+    return seq
+
+
+def write_par(tsp_file, par_file="problem.par", runs=10, time_limit=30):
+    txt = f"""PROBLEM_FILE = {tsp_file}
+OUTPUT_TOUR_FILE = result.tour
+RUNS = {runs}
+TIME_LIMIT = {time_limit}
+"""
+    pathlib.Path(par_file).write_text(txt)
+    return par_file
+
+
+def haversine(a, b):
+    R = 6371000            # м
+    lat1, lon1 = map(math.radians, a)
+    lat2, lon2 = map(math.radians, b)
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    return round(
+        2*R*math.asin(
+            math.sqrt(
+                math.sin(dlat/2)**2 +
+                math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
+            )))
+
+
+def write_tsplib(coords, name="demo", fname="demo.tsp"):
+    n = len(coords)
+    lines = [
+        f"NAME : {name}",
+        "TYPE : TSP",
+        f"DIMENSION : {n}",
+        "EDGE_WEIGHT_TYPE : EXPLICIT",
+        "EDGE_WEIGHT_FORMAT : FULL_MATRIX",
+        "EDGE_WEIGHT_SECTION"
+    ]
+    for i in range(n):
+        lines.append(" ".join(str(haversine(coords[i], coords[j]))
+                              for j in range(n)))
+    lines.append("EOF")
+    pathlib.Path(fname).write_text("\n".join(lines))
+    return fname
+
+
+def rotate_to_start(tour, start=0):
+    k = tour.index(start)
+    return tour[k:] + tour[:k]
+
+
+# Exact-partition as simple heuristics
+def partition_tsp_to_tspd(tour, truck_time, drone_time, drone_range, k_drone=2, w1=2.0, w2=2.0):
+    """
+    tour: without 0′
+    each k-th client → drone if the total depot-deliver-next ≤ drone_range
+    return: Type-Aware Chromosome (TAC) without depot and 0′ node
+    """
+    tac = []
+    last_was_drone = False
+    for idx, node in enumerate(tour[1:]):
+        is_drone_candidate = (idx+1) % k_drone == 0 and not last_was_drone
+        if is_drone_candidate:
+            prev_n = tour[idx]
+            next_n = tour[idx+2] if idx+2 < len(tour) else tour[0]
+            flight = (drone_time[prev_n][node] + drone_time[node][next_n])
+            penalty = w1*0 + w2*max(0, flight-drone_range)
+            if flight + penalty <= drone_range:
+                tac.append(-node)  # create a drone node
+                last_was_drone = True
+                continue
+        tac.append(+node)  # leave the node as truck
+        last_was_drone = False
+    return tac  # omega0 in article
+
+
+# To diversify the population and explore the solution space effectively,
+# new individuals are generated by applying specific modifying operators to existing solutions
+def element_wise_mod(chrom, p_flip=0.1, p_swap=0.1):
+    """Random modification of individual elements within a chromosome
+    """
+    chrom = chrom[:]  # copy
+    for i in range(len(chrom)):
+        r = random.random()
+        if r < p_flip:
+            chrom[i] = -chrom[i]  # change type
+        elif r < p_flip + p_swap and i > 0:
+            chrom[i], chrom[i-1] = chrom[i-1], chrom[i]  # swap
+    return chrom
+
+
+def sequence_mod(chrom):
+    """Modifying subsequences within the chromosome
+    """
+    chrom = chrom[:]
+    i1, i2 = sorted(random.sample(range(len(chrom)), 2))
+    mode = random.choice(["reverse", "flip", "shuffle"])
+    seg = chrom[i1:i2+1]
+    if mode == "reverse":
+        seg = list(reversed(seg))
+    elif mode == "flip":
+        seg = [-g for g in seg]
+    else:  # shuffle
+        random.shuffle(seg)
+    chrom[i1:i2+1] = seg
+    return chrom
+
+
+def classify(route, fitness, drone_range, chrom):
+    """0 – feasible, 1 – type-1, 2 – type-2"""
+    if fitness == float('inf'):
+        return 1
+    if any(a[0] == 'LL' and a[4] > drone_range for a in route):
+        return 2
+    if any(chrom[i] < 0 and chrom[i+1] < 0 for i in range(len(chrom)-1)):
+        return 1
+    return 0
+
+
+def generate_initial_population_from_tac(omega0, µ, truck_time, drone_time, drone_range):
+    """
+    Forms three subpopulations Ωᶠ, Ω¹_inf, Ω²_inf (feasible, Type 1, Type 2).
+    First compute ω₀, then "modifies" existing chromosomes until each subpopulation contains µ individuals.
+    Returns subpops: {0:[(chrom,cost), ...], 1:[...], 2:[...]}"""
+    subpops = {0: [], 1: [], 2: []}
+
+    def push(ch, cost, typ):
+        subpops[typ].append((ch, cost))
+
+    # ω0
+    r0, c0 = join_algorithm(omega0, truck_time, drone_time, drone_range)
+    push(omega0, c0, classify(r0, c0, drone_range, omega0))
+
+    # generate until there are µ individuals in each subpopulation
+    while any(len(lst) < µ for lst in subpops.values()):
+        base = random.choice(sum(subpops.values(), []))[0]
+        child = element_wise_mod(base)
+        if random.random() < 0.5:
+            child = sequence_mod(child)
+        # decode chromosome with join
+        route, cost = join_algorithm(child, truck_time, drone_time, drone_range)
+        # -> feas, infeas1, infeas2
+        typ = classify(route, cost, drone_range, child)
+        # add to the corresponding subpopulation
+        push(child, cost, typ)
+    return subpops
 
 
 if __name__ == "__main__":
     drone_speed = 20  # m/s
     truck_speed = 10
-    drone_range = float('inf')
+    # drone_range = float('inf')
+    drone_range = 300
 
     places = [(50.149, 8.666),  # idx=0 = 6
               (50.148, 8.616),  # idx=1
-              (50.130, 8.668),  # idx=2
-              (50.146, 8.777),  # idx=3
-              (50.160, 8.750),  # idx=4
-              (50.164, 8.668),  # idx=5
+              (50.146, 8.777),  # idx=2
+              (50.160, 8.750),  # idx=3
+              (50.164, 8.668),  # idx=4
+              (50.130, 8.668),  # idx=5
               ]
 
-    n = len(places)  # (без учёта 0′)
+    n = len(places)  # withput 0′
     logger.info(f"For {n} points.")
-    chrom, route, fitness = genetic_algorithm(places)
+    chrom, route, fitness = genetic_algorithm(places, drone_range, generations=1, population_size=3, truck_speed=10)
     logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
     if route:
         visualize_route(places, route)
