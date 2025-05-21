@@ -256,6 +256,8 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
 
 
 def visualize_route(places, route):
+    places = places[:]  # copy
+    places.append(places[0])
     # depo as centre
     m = folium.Map(location=places[0], zoom_start=14)
     n_last = len(places) - 1
@@ -652,61 +654,62 @@ def repair(chromosome, truck_time, drone_time, drone_range, p_repair=0.5):
 
 
 def genetic_algorithm(places, drone_range, generations, population_size, truck_speed, drone_speed):
-
-    # init TSP with LKH
-    tsp_file = write_tsplib(places, name="demo", fname="demo.tsp")
-    par_file = write_par(tsp_file, "demo.par", runs=1)
-    # lkh_tour = run_lkh(par_file, exe_path="/usr/local/bin/LKH")
-    lkh_tour = run_lkh(par_file, exe_path="LKH")  # in TSP/
-    logger.info(f"LKH tour: {lkh_tour}")
-    tsp_tour = rotate_to_start(lkh_tour, start=0)
-    # tsp_tour = [1, 5, 2, 3, 4]  # for test
-    logger.info(f"init TSP tour: {tsp_tour}")
-
-    feasible_pop = []
-    infeasible_1_pop = []
-    infeasible_2_pop = []
-    max_no_improve = 1000  # ItNI
-
-    # n = len(places) - 1
-    # population = generate_initial_population(n, population_size)
-
-    ######
-    # init TSPD with heuristics -> needs to be exact partition
-    places.append(places[0])
-    n = len(places) - 1
-    logger.info(f"For {n} points.")
-    logger.info(f"{places}")
-    # init time matrix
-    truck_time_matrix = [[0] * (n + 2) for _ in range(n + 2)]
-    drone_time_matrix = [[0] * (n + 2) for _ in range(n + 2)]
-    for i in range(n + 1):
-        for j in range(n + 1):
-            dist = euclidean_distance(places[i], places[j])
-            truck_time_matrix[i][j] = dist / truck_speed
-            drone_time_matrix[i][j] = dist / drone_speed
-    # form ω0
-    omega0 = partition_tsp_to_tspd(tsp_tour, truck_time_matrix, drone_time_matrix, drone_range)
-    logger.debug(f"omega: {omega0}")
-    # generate subpopulations
-    µ = 3  # population size
-    subpops = generate_initial_population_from_tac(omega0, µ, truck_time_matrix, drone_time_matrix, drone_range)
-    # logger.debug(f"subpops: {subpops}")
-    # merge subpopulations into one list
-    population = [ch for lst in subpops.values() for ch, _ in lst]  # init population
-    # logger.debug(f"population: {population}")
-    ######
-
-    fitnesses = []
-    best_fitness = float('inf')  # min makespan
-    best_solution = None  # chromosome that gave the best result
-    best_route = None  # list of actions (MT/LL) for the best chromosome
-    improved = False
-    no_improve_count = 0
-
     with open("mutations.txt", "w", encoding="utf-8") as file:
+        # init TSP with LKH
+        tsp_file = write_tsplib(places, name="demo", fname="demo.tsp")
+        par_file = write_par(tsp_file, "demo.par", runs=1)
+        # lkh_tour = run_lkh(par_file, exe_path="/usr/local/bin/LKH")
+        lkh_tour = run_lkh(par_file, exe_path="LKH")  # in TSP/
+        # logger.info(f"LKH tour: {lkh_tour}")
+        tsp_tour = rotate_to_start(lkh_tour, start=0)
+        # tsp_tour = [1, 5, 2, 3, 4]  # for test
+        file.write(f"init TSP tour: {tsp_tour}\n")
+
+        feasible_pop = []
+        infeasible_1_pop = []
+        infeasible_2_pop = []
+        max_no_improve = 2500  # ItNI
+
+        # n = len(places) - 1
+        # population = generate_initial_population(n, population_size)
+
+        # init TSPD with heuristics -> needs to be exact partition
+        places = places[:]  # copy
+        places.append(places[0])
+        n = len(places) - 1
+        logger.info(f"For {n} points.")
+        logger.info(f"{places}")
+        # init time matrix
+        truck_time_matrix = [[0] * (n + 2) for _ in range(n + 2)]
+        drone_time_matrix = [[0] * (n + 2) for _ in range(n + 2)]
+        for i in range(n + 1):
+            for j in range(n + 1):
+                dist = euclidean_distance(places[i], places[j])
+                truck_time_matrix[i][j] = dist / truck_speed
+                drone_time_matrix[i][j] = dist / drone_speed
+        # form ω0
+        omega0 = partition_tsp_to_tspd(tsp_tour, truck_time_matrix, drone_time_matrix, drone_range)
+        file.write(f"omega: {omega0}\n")
+        # generate subpopulations
+        µ = 3  # population size
+        subpops = generate_initial_population_from_tac(omega0, µ, truck_time_matrix, drone_time_matrix, drone_range)
+        file.write(f"subpops: {subpops}\n")
+        # merge subpopulations into one list
+        population = [ch for lst in subpops.values() for ch, _ in lst]  # init population
+        file.write(f"population: {population}\n")
+
+        fitnesses = []
+        best_fitness = float('inf')  # min makespan
+        best_solution = None  # chromosome that gave the best result
+        best_route = None  # list of actions (MT/LL) for the best chromosome
+        improved = False
+        no_improve_count = 0
+
+
         # Evaluate initial population
         for chrom in population:
+            logger.debug(f"chrom: {chrom}")
+            file.write(f"chrom: {chrom}\n")
             fit, feas, route = evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range)
             fitnesses.append(fit)
             # set best fitness for the init population
@@ -980,22 +983,36 @@ if __name__ == "__main__":
     population_size = 3
     generations = 1
 
-    places = [(50.149, 8.666),  # idx=0 = 6
-              (50.148, 8.616),  # idx=1
-              (50.146, 8.777),  # idx=2
-              (50.160, 8.750),  # idx=3
-              (50.164, 8.668),  # idx=4
-              (50.130, 8.668),  # idx=5
-              ]
+    #places = [(50.149, 8.666),  # idx=0 = 6
+    #          (50.148, 8.616),  # idx=1
+    #          (50.146, 8.777),  # idx=2
+    #          (50.160, 8.750),  # idx=3
+    #          (50.164, 8.668),  # idx=4
+    #          (50.130, 8.668),  # idx=5
+    #          ]
 
+    places = [(50.08907396096527, 8.670714912636585),
+              (50.12413060964201, 8.607552521857166),
+              (50.13104153062146, 8.716872044360008),
+              (50.10572906849683, 8.757866865298572),
+              (50.114456044438604, 8.675334053958041),
+              (50.10392126972894, 8.631731759275732),
+              (50.139217216992726, 8.676705648840892),
+              (50.121404901636176, 8.66130128708773),
+              (50.102612763576104, 8.6767882194423),
+              (50.12705083884542, 8.692123319126726)
+
+    ]
     n = len(places)  # without 0′
     logger.info(f"For {n} points.")
     #chrom, route, fitness = genetic_algorithm(places, drone_range, generations, population_size, truck_speed, drone_speed)
     #logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
+    #visualize_route(places, route)
+
     best_route = None
     best_fitness = float('inf')
     list_of_fitnesses = []
-    for i in range(10):
+    for i in range(0, 40):
         chrom, route, fitness = genetic_algorithm(places, drone_range, generations, population_size, truck_speed,
                                                   drone_speed)
         logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
@@ -1003,12 +1020,6 @@ if __name__ == "__main__":
         if fitness < best_fitness:
             best_fitness = fitness
             best_route = route
+            visualize_route(places, best_route)
     logger.debug(f"fitness: {best_fitness}, route {best_route}")
     logger.debug(f"list {list_of_fitnesses}")
-
-    if best_route:
-        visualize_route(places, best_route)
-    else:
-        logger.error(f"no optimal route")
-
-
