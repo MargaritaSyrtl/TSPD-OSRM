@@ -76,6 +76,9 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
         """
         return prefix[pos_truck[b]] - prefix[pos_truck[a]]
 
+    def has_truck_between(a_idx, b_idx):
+        return any(node_types.get(full_seq[t]) == 'truck'
+                   for t in range(a_idx + 1, b_idx))
     # DP
     # C[i] — minimum time from truck node i to the end
     C = {}
@@ -111,10 +114,13 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
                      len(full_seq))  # position d(i) or len==0′
         # T()
         T_set = [u for u in truck_nodes
-                 if pos[i] < pos[u] < d_idx]
+                 if pos[i] < pos[u] < d_idx
+                 and not has_truck_between(pos[i], pos[u])
+                 ]
         logger.debug(f"Tset: {T_set}")
         for j in T_set:  # truck nodes to the right
             cand = S.get(j, set()).copy()
+            cand.add(j)
             logger.debug(f"truck_nodes[{idx + 1:}]={j}")
             # j – truck node-candidate
             if j == n + 1 and truck_nodes[idx + 1:-1]:
@@ -150,9 +156,16 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             logger.debug("no drone after i → skip LL")
             d_idx = None
 
+        # если между i и deliver встречается хоть один truck-клиент,
+        #  переход LL из i невозможен ─ нужно сначала обслужить их.
+        if d_idx is not None and any(node_types.get(full_seq[t]) == "truck"
+               for t in range(i_full_idx + 1, d_idx)):
+            d_idx = None
+
         if d_idx is not None:
             deliver = full_seq[d_idx]
             logger.debug(f"d: {deliver}")
+
             # find d⁺(i) (next drone node after d(i))
             try:
                 dplus_idx = next(j for j in range(d_idx + 1, len(full_seq))
@@ -160,15 +173,18 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             except StopIteration:
                 dplus_idx = len(full_seq) - 1  # 0′ in full_seq
             logger.debug(f"next d: {dplus_idx}")
+
             # form E⁺(i)
             candidate_k = [u for u in truck_nodes
                            if d_idx < pos[u] <= dplus_idx
+                           and not has_truck_between(d_idx, pos[u])
                            and (u != n + 1 or i == last_real_truck)]
             logger.debug(f"E+: {candidate_k}")
             # loop for k ∈ E⁺(i)
             CLL = float('inf')
             for k in candidate_k:
                 cand = S.get(k, set()).union({deliver})
+                cand.add(k)
                 drone_leg = drone_time[i][deliver]
                 consec_penalty = 0.0
                 cur_d = deliver
@@ -677,7 +693,7 @@ def genetic_algorithm(places, drone_range, generations=1, population_size=3, tru
     subpops = generate_initial_population_from_tac(omega0, µ, truck_time_matrix, drone_time_matrix, drone_range)
     # logger.debug(f"subpops: {subpops}")
     # merge subpopulations into one list
-    population = [ch for lst in subpops.values() for ch, _ in lst]
+    population = [ch for lst in subpops.values() for ch, _ in lst]  # init population
     # logger.debug(f"population: {population}")
     ######
 
@@ -685,25 +701,25 @@ def genetic_algorithm(places, drone_range, generations=1, population_size=3, tru
     best_fitness = float('inf')  # min makespan
     best_solution = None  # chromosome that gave the best result
     best_route = None  # list of actions (MT/LL) for the best chromosome
-    improved = 0
+    improved = False
     no_improve_count = 0
 
-    # Evaluate initial population and set fallback
-    for chrom in population:
-        fit, feas, route = evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range)
-        fitnesses.append(fit)
-
     with open("mutations.txt", "w", encoding="utf-8") as file:
+        # Evaluate initial population
+        for chrom in population:
+            fit, feas, route = evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range)
+            fitnesses.append(fit)
+            # set best fitness for the init population
+            if feas == 0 and fit < best_fitness:
+                best_fitness = fit
+                best_solution = chrom
+                best_route = route
+        file.write(f"init fitnesses: {str(fitnesses)}\n")
 
+        # Generate and evaluate offsprings
         for g in range(generations):
-            # evaluate fitness of all chromosomes
-            # fitnesses = [evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range) for chrom in population]
-            for chrom in population:
-                fit, feas, route = evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range)
-                fitnesses.append(fit)
-            logger.info(fitnesses)
-            file.write(str(fitnesses))
 
+            # improved = False  # ??here
             # tournament selection
             p1 = tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range)
             logger.info(f"first parent: {p1}")  # [3, -1, 2]
@@ -711,21 +727,21 @@ def genetic_algorithm(places, drone_range, generations=1, population_size=3, tru
             while p1 == p2:
                 p2 = tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range)
             logger.info(f"second parent: {p2}")  # [2, -1, 3]
-            file.write(str(p1))
-            file.write(str(p2))
+            file.write(f"parent1: {str(p1)}\n")
+            file.write(f"parent2: {str(p2)}\n")
             # if still p1==p2 ?
 
             # crossover -> new child
             child = tox1(p1, p2) if random.random() < 0.5 else tox2(p1, p2)
             logger.debug(f"child: {child}")  # child: [-1, 2, -3]
-            file.write(str(child))
+            file.write(f"child after crossover: {str(child)}\n")
             # mutation
             if random.random() < 0.5:
                 child = sign_mutation(child)
             else:
                 child = tour_mutation(child)
             logger.debug(f"child after mutation: {child}")  # child after mutation: [-1, 2, 3]
-            file.write(str(child))
+            file.write(f"child after mutation: {str(child)}\n")
 
             # evaluate child after all mutations
             fitness, feasible, route = evaluate(child, truck_time_matrix, drone_time_matrix, drone_range)
@@ -741,12 +757,12 @@ def genetic_algorithm(places, drone_range, generations=1, population_size=3, tru
                 # local search only for feasible chrom
                 child, fitness = local_search(child, truck_time_matrix, drone_time_matrix, drone_range)
                 logger.debug(f"child after local search: {child}")
-                file.write(str(child))
-                route, fitness = join_algorithm(child,
-                                                truck_time_matrix,
-                                                drone_time_matrix,
-                                                drone_range)
-                # fitness, feasible, route = evaluate(child, truck_time_matrix, drone_time_matrix, drone_range)
+                file.write(f"child after local search: {str(child)}\n")
+                #route, feasible, fitness = join_algorithm(child,
+                #                                truck_time_matrix,
+                #                                drone_time_matrix,
+                #                                drone_range)
+                fitness, feasible, route = evaluate(child, truck_time_matrix, drone_time_matrix, drone_range)
 
                 feasible_pop.append((child, fitness))
                 logger.debug(f"fitness: {fitness}, route: {route}")
@@ -774,6 +790,7 @@ def genetic_algorithm(places, drone_range, generations=1, population_size=3, tru
                 no_improve_count = 0
             if no_improve_count >= max_no_improve:
                 break
+
     logger.debug(f"{best_solution}, {best_route}, {best_fitness}")
     return best_solution, best_route, best_fitness
 
@@ -953,7 +970,7 @@ if __name__ == "__main__":
     drone_speed = 20  # m/s
     truck_speed = 10
     # drone_range = float('inf')
-    drone_range = 300
+    drone_range = 3000
 
     places = [(50.149, 8.666),  # idx=0 = 6
               (50.148, 8.616),  # idx=1
