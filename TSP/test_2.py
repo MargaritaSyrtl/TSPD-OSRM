@@ -651,22 +651,22 @@ def repair(chromosome, truck_time, drone_time, drone_range, p_repair=0.5):
     return chrom
 
 
-def genetic_algorithm(places, drone_range, generations=1, population_size=3, truck_speed=10):
+def genetic_algorithm(places, drone_range, generations, population_size, truck_speed, drone_speed):
 
     # init TSP with LKH
     tsp_file = write_tsplib(places, name="demo", fname="demo.tsp")
     par_file = write_par(tsp_file, "demo.par", runs=1)
-    lkh_tour = run_lkh(par_file, exe_path="/usr/local/bin/LKH")
+    # lkh_tour = run_lkh(par_file, exe_path="/usr/local/bin/LKH")
+    lkh_tour = run_lkh(par_file, exe_path="LKH")  # in TSP/
     logger.info(f"LKH tour: {lkh_tour}")
     tsp_tour = rotate_to_start(lkh_tour, start=0)
     # tsp_tour = [1, 5, 2, 3, 4]  # for test
     logger.info(f"init TSP tour: {tsp_tour}")
 
-    drone_speed = 2 * truck_speed
     feasible_pop = []
     infeasible_1_pop = []
     infeasible_2_pop = []
-    max_no_improve = 10  # ItNI
+    max_no_improve = 1000  # ItNI
 
     # n = len(places) - 1
     # population = generate_initial_population(n, population_size)
@@ -792,6 +792,12 @@ def genetic_algorithm(places, drone_range, generations=1, population_size=3, tru
                 break
 
     logger.debug(f"{best_solution}, {best_route}, {best_fitness}")
+
+    # test if the route is the most optimal
+    #assert all(evaluate(chrom, truck_time_matrix,
+    #                    drone_time_matrix, drone_range)[0] >= best_fitness
+    #           for chrom in population), "Found better route"
+
     return best_solution, best_route, best_fitness
 
 
@@ -971,6 +977,8 @@ if __name__ == "__main__":
     truck_speed = 10
     # drone_range = float('inf')
     drone_range = 3000
+    population_size = 3
+    generations = 1
 
     places = [(50.149, 8.666),  # idx=0 = 6
               (50.148, 8.616),  # idx=1
@@ -980,12 +988,26 @@ if __name__ == "__main__":
               (50.130, 8.668),  # idx=5
               ]
 
-    n = len(places)  # withput 0′
+    n = len(places)  # without 0′
     logger.info(f"For {n} points.")
-    chrom, route, fitness = genetic_algorithm(places, drone_range, generations=1, population_size=3, truck_speed=10)
-    logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
-    if route:
-        visualize_route(places, route)
+    #chrom, route, fitness = genetic_algorithm(places, drone_range, generations, population_size, truck_speed, drone_speed)
+    #logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
+    best_route = None
+    best_fitness = float('inf')
+    list_of_fitnesses = []
+    for i in range(10):
+        chrom, route, fitness = genetic_algorithm(places, drone_range, generations, population_size, truck_speed,
+                                                  drone_speed)
+        logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
+        list_of_fitnesses.append(fitness)
+        if fitness < best_fitness:
+            best_fitness = fitness
+            best_route = route
+    logger.debug(f"fitness: {best_fitness}, route {best_route}")
+    logger.debug(f"list {list_of_fitnesses}")
+
+    if best_route:
+        visualize_route(places, best_route)
     else:
         logger.error(f"no optimal route")
 
