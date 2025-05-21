@@ -156,8 +156,8 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             logger.debug("no drone after i → skip LL")
             d_idx = None
 
-        # если между i и deliver встречается хоть один truck-клиент,
-        #  переход LL из i невозможен ─ нужно сначала обслужить их.
+        # If there is at least one truck client between i and deliver,
+        # LL from i is impossible - they must be served first
         if d_idx is not None and any(node_types.get(full_seq[t]) == "truck"
                for t in range(i_full_idx + 1, d_idx)):
             d_idx = None
@@ -833,7 +833,7 @@ TIME_LIMIT = {time_limit}
 
 
 def haversine(a, b):
-    R = 6371000            # м
+    R = 6371000
     lat1, lon1 = map(math.radians, a)
     lat2, lon2 = map(math.radians, b)
     dlat = lat2 - lat1
