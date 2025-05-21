@@ -48,7 +48,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
     # truck nodes in order of succession in full_seq
     truck_nodes = [0]
     drone_nodes = []
-    #for i in range(1, n + 1):  # n+1 virtual node -> 3=0
+    # for i in range(1, n + 1):  # n+1 virtual node -> 3=0
     #    if node_types.get(i) == "truck":
     #        truck_nodes.append(i)
     for node in full_seq[1:-1]:  # without 0 and (n+1)
@@ -79,6 +79,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
     def has_truck_between(a_idx, b_idx):
         return any(node_types.get(full_seq[t]) == 'truck'
                    for t in range(a_idx + 1, b_idx))
+
     # DP
     # C[i] — minimum time from truck node i to the end
     C = {}
@@ -159,7 +160,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
         # If there is at least one truck client between i and deliver,
         # LL from i is impossible - they must be served first
         if d_idx is not None and any(node_types.get(full_seq[t]) == "truck"
-               for t in range(i_full_idx + 1, d_idx)):
+                                     for t in range(i_full_idx + 1, d_idx)):
             d_idx = None
 
         if d_idx is not None:
@@ -169,7 +170,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
             # find d⁺(i) (next drone node after d(i))
             try:
                 dplus_idx = next(j for j in range(d_idx + 1, len(full_seq))
-                             if node_types.get(full_seq[j]) == 'drone')
+                                 if node_types.get(full_seq[j]) == 'drone')
             except StopIteration:
                 dplus_idx = len(full_seq) - 1  # 0′ in full_seq
             logger.debug(f"next d: {dplus_idx}")
@@ -285,7 +286,7 @@ def visualize_route(places, route):
 
     truck_nodes = [0]  # start at the depo
     for act in route:
-        next_node = act[2] if act[0] == "MT" else act[3]   # MT: j  |  LL: k
+        next_node = act[2] if act[0] == "MT" else act[3]  # MT: j  |  LL: k
         truck_nodes.append(next_node)
 
     # if the route does not explicitly go to the depo -> add route to the depo
@@ -347,12 +348,12 @@ def evaluate(chrom, truck_time, drone_time, drone_range):
     logger.debug(f"Route: {route}")
     logger.debug(f"cost: {cost}")
 
-    if any(chrom[i] < 0 and chrom[i+1] < 0 for i in range(len(chrom)-1)):
-        feas = 1                         # Type 1
-    elif any(a[0]=='LL' and a[4] > drone_range for a in route):
-        feas = 2                         # Type 2
+    if any(chrom[i] < 0 and chrom[i + 1] < 0 for i in range(len(chrom) - 1)):
+        feas = 1  # Type 1
+    elif any(a[0] == 'LL' and a[4] > drone_range for a in route):
+        feas = 2  # Type 2
     else:
-        feas = 0                         # feasible
+        feas = 0  # feasible
     logger.debug(f"route: {route}, feasibility: {feas}, fitness: {cost}")
     return cost, feas, route
 
@@ -402,13 +403,14 @@ def tox1(parent1, parent2):
     i1, i2 = sorted(random.sample(range(n), 2))
     # logger.debug(f"fragment between i1={i1} and i2={i2}")
     segment_type = 'truck' if random.random() < 0.5 else 'drone'
+
     # logger.debug(f"segment_type: {segment_type}")
 
     def type_of_node(g):
         return 'truck' if g > 0 else 'drone'
 
     # copy the substring of the required type from p1
-    segment = [g for g in parent1[i1:i2+1] if type_of_node(g) == segment_type]
+    segment = [g for g in parent1[i1:i2 + 1] if type_of_node(g) == segment_type]
     # logger.debug(f"segment: {segment}")
     segment_ids = set(abs(g) for g in segment)
     # logger.debug(f"segment ids: {segment_ids}")
@@ -430,7 +432,7 @@ def tox2(parent1, parent2):
     i1, i2 = sorted(random.sample(range(n), 2))
     # logger.debug(f"between: {i1} and {i2}")
     # copy the segment from p1
-    segment = parent1[i1:i2+1]
+    segment = parent1[i1:i2 + 1]
     # logger.debug(f"segment: {segment}")
     segment_ids = set(abs(g) for g in segment)  # stores nodes without signs that are already in this segment
     # logger.debug(f"segment ids: {segment_ids}")
@@ -500,8 +502,8 @@ def local_search_l1(chromosome):
     n = len(chrom)
     # find three consecutive truck nodes
     for i in range(n - 2):
-        if chrom[i] > 0 and chrom[i+1] > 0 and chrom[i+2] > 0:
-            chrom[i+1] = -chrom[i+1]  # convert the middle one to a drone node
+        if chrom[i] > 0 and chrom[i + 1] > 0 and chrom[i + 2] > 0:
+            chrom[i + 1] = -chrom[i + 1]  # convert the middle one to a drone node
             return chrom
     return chrom
 
@@ -548,7 +550,7 @@ def local_search_l4(chromosome):
     # select two indices
     i1, i2 = sorted(random.sample(truck_positions, 2))
     # reverse arcs
-    chromosome[i1:i2+1] = reversed(chromosome[i1:i2+1])
+    chromosome[i1:i2 + 1] = reversed(chromosome[i1:i2 + 1])
     return chromosome
 
 
@@ -647,13 +649,13 @@ def repair(chromosome, truck_time, drone_time, drone_range, p_repair=0.5):
     # repair always!
     for i, g in enumerate(chrom):
         if abs(g) in violating_nodes and g < 0:
-            #if random.random() < p_repair:
-                chrom[i] = abs(g)
+            # if random.random() < p_repair:
+            chrom[i] = abs(g)
     logger.debug(f"repaired chromosome: {chromosome}")
     return chrom
 
 
-def genetic_algorithm(places, drone_range, generations, population_size, truck_speed, drone_speed):
+def genetic_algorithm(places, drone_range, generations, population_size, mu_value, ItNI, truck_speed, drone_speed):
     with open("mutations.txt", "w", encoding="utf-8") as file:
         # init TSP with LKH
         tsp_file = write_tsplib(places, name="demo", fname="demo.tsp")
@@ -668,10 +670,6 @@ def genetic_algorithm(places, drone_range, generations, population_size, truck_s
         feasible_pop = []
         infeasible_1_pop = []
         infeasible_2_pop = []
-        max_no_improve = 2500  # ItNI
-
-        # n = len(places) - 1
-        # population = generate_initial_population(n, population_size)
 
         # init TSPD with heuristics -> needs to be exact partition
         places = places[:]  # copy
@@ -691,8 +689,8 @@ def genetic_algorithm(places, drone_range, generations, population_size, truck_s
         omega0 = partition_tsp_to_tspd(tsp_tour, truck_time_matrix, drone_time_matrix, drone_range)
         file.write(f"omega: {omega0}\n")
         # generate subpopulations
-        µ = 3  # population size
-        subpops = generate_initial_population_from_tac(omega0, µ, truck_time_matrix, drone_time_matrix, drone_range)
+        subpops = generate_initial_population_from_tac(omega0, mu_value, truck_time_matrix, drone_time_matrix,
+                                                       drone_range)
         file.write(f"subpops: {subpops}\n")
         # merge subpopulations into one list
         population = [ch for lst in subpops.values() for ch, _ in lst]  # init population
@@ -704,7 +702,6 @@ def genetic_algorithm(places, drone_range, generations, population_size, truck_s
         best_route = None  # list of actions (MT/LL) for the best chromosome
         improved = False
         no_improve_count = 0
-
 
         # Evaluate initial population
         for chrom in population:
@@ -761,7 +758,7 @@ def genetic_algorithm(places, drone_range, generations, population_size, truck_s
                 child, fitness = local_search(child, truck_time_matrix, drone_time_matrix, drone_range)
                 logger.debug(f"child after local search: {child}")
                 file.write(f"child after local search: {str(child)}\n")
-                #route, feasible, fitness = join_algorithm(child,
+                # route, feasible, fitness = join_algorithm(child,
                 #                                truck_time_matrix,
                 #                                drone_time_matrix,
                 #                                drone_range)
@@ -784,20 +781,21 @@ def genetic_algorithm(places, drone_range, generations, population_size, truck_s
 
             # update population
             population.append(child)
-            population = sorted(population, key=lambda chrom: evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range)[0])
+            population = sorted(population,
+                                key=lambda chrom: evaluate(chrom, truck_time_matrix, drone_time_matrix, drone_range)[0])
             population = population[:population_size]  # keep best
 
             if not improved:
                 no_improve_count += 1
             else:
                 no_improve_count = 0
-            if no_improve_count >= max_no_improve:
+            if no_improve_count >= ItNI:
                 break
 
     logger.debug(f"{best_solution}, {best_route}, {best_fitness}")
 
     # test if the route is the most optimal
-    #assert all(evaluate(chrom, truck_time_matrix,
+    # assert all(evaluate(chrom, truck_time_matrix,
     #                    drone_time_matrix, drone_range)[0] >= best_fitness
     #           for chrom in population), "Found better route"
 
@@ -827,7 +825,7 @@ def read_tour(tour_file):
     for s in lines[start:]:
         v = int(s.split()[0])
         if v == -1: break
-        seq.append(v-1)     # TSPLIB numbers from 1
+        seq.append(v - 1)  # TSPLIB numbers from 1
     return seq
 
 
@@ -848,10 +846,10 @@ def haversine(a, b):
     dlat = lat2 - lat1
     dlon = lon2 - lon1
     return round(
-        2*R*math.asin(
+        2 * R * math.asin(
             math.sqrt(
-                math.sin(dlat/2)**2 +
-                math.cos(lat1)*math.cos(lat2)*math.sin(dlon/2)**2
+                math.sin(dlat / 2) ** 2 +
+                math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
             )))
 
 
@@ -888,12 +886,12 @@ def partition_tsp_to_tspd(tour, truck_time, drone_time, drone_range, k_drone=2, 
     tac = []
     last_was_drone = False
     for idx, node in enumerate(tour[1:]):
-        is_drone_candidate = (idx+1) % k_drone == 0 and not last_was_drone
+        is_drone_candidate = (idx + 1) % k_drone == 0 and not last_was_drone
         if is_drone_candidate:
             prev_n = tour[idx]
-            next_n = tour[idx+2] if idx+2 < len(tour) else tour[0]
+            next_n = tour[idx + 2] if idx + 2 < len(tour) else tour[0]
             flight = (drone_time[prev_n][node] + drone_time[node][next_n])
-            penalty = w1*0 + w2*max(0, flight-drone_range)
+            penalty = w1 * 0 + w2 * max(0, flight - drone_range)
             if flight + penalty <= drone_range:
                 tac.append(-node)  # create a drone node
                 last_was_drone = True
@@ -914,7 +912,7 @@ def element_wise_mod(chrom, p_flip=0.1, p_swap=0.1):
         if r < p_flip:
             chrom[i] = -chrom[i]  # change type
         elif r < p_flip + p_swap and i > 0:
-            chrom[i], chrom[i-1] = chrom[i-1], chrom[i]  # swap
+            chrom[i], chrom[i - 1] = chrom[i - 1], chrom[i]  # swap
     return chrom
 
 
@@ -924,14 +922,14 @@ def sequence_mod(chrom):
     chrom = chrom[:]
     i1, i2 = sorted(random.sample(range(len(chrom)), 2))
     mode = random.choice(["reverse", "flip", "shuffle"])
-    seg = chrom[i1:i2+1]
+    seg = chrom[i1:i2 + 1]
     if mode == "reverse":
         seg = list(reversed(seg))
     elif mode == "flip":
         seg = [-g for g in seg]
     else:  # shuffle
         random.shuffle(seg)
-    chrom[i1:i2+1] = seg
+    chrom[i1:i2 + 1] = seg
     return chrom
 
 
@@ -941,7 +939,7 @@ def classify(route, fitness, drone_range, chrom):
         return 1
     if any(a[0] == 'LL' and a[4] > drone_range for a in route):
         return 2
-    if any(chrom[i] < 0 and chrom[i+1] < 0 for i in range(len(chrom)-1)):
+    if any(chrom[i] < 0 and chrom[i + 1] < 0 for i in range(len(chrom) - 1)):
         return 1
     return 0
 
@@ -976,14 +974,21 @@ def generate_initial_population_from_tac(omega0, µ, truck_time, drone_time, dro
 
 
 if __name__ == "__main__":
-    drone_speed = 20  # m/s
-    truck_speed = 10
-    # drone_range = float('inf')
-    drone_range = 3000
-    population_size = 3
-    generations = 1
+    truck_speed = 10  # m/s
+    drone_speed = 2 * truck_speed
+    drone_range = 3000  # m
+    # parameters:
+    # mu_value - min size of each subpop = 15
+    # lambda_value -  "offspring pool" (added on top of µ before "survivor selection") = 25
+    # ItNI - number of iterations with no improvements for stopping the GA = 2500
+    # generations - number of iterations in GA
+    mu_value = 15
+    lambda_value = 25
+    population_size = mu_value + lambda_value
+    ItNI = 2500
+    generations = 100
 
-    #places = [(50.149, 8.666),  # idx=0 = 6
+    # places = [(50.149, 8.666),  # idx=0 = 6
     #          (50.148, 8.616),  # idx=1
     #          (50.146, 8.777),  # idx=2
     #          (50.160, 8.750),  # idx=3
@@ -1002,19 +1007,21 @@ if __name__ == "__main__":
               (50.102612763576104, 8.6767882194423),
               (50.12705083884542, 8.692123319126726)
 
-    ]
+              ]
     n = len(places)  # without 0′
     logger.info(f"For {n} points.")
-    #chrom, route, fitness = genetic_algorithm(places, drone_range, generations, population_size, truck_speed, drone_speed)
-    #logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
-    #visualize_route(places, route)
+    # chrom, route, fitness = genetic_algorithm(places, drone_range, generations,
+    # population_size, mu_value, ItNI truck_speed, drone_speed)
+    # logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
+    # visualize_route(places, route)
 
     best_route = None
     best_fitness = float('inf')
     list_of_fitnesses = []
     for i in range(0, 40):
-        chrom, route, fitness = genetic_algorithm(places, drone_range, generations, population_size, truck_speed,
-                                                  drone_speed)
+        chrom, route, fitness = genetic_algorithm(places, drone_range, generations,
+                                                  population_size, mu_value, ItNI,
+                                                  truck_speed, drone_speed)
         logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
         list_of_fitnesses.append(fitness)
         if fitness < best_fitness:

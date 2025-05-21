@@ -382,7 +382,7 @@ if __name__ == "__main__":
     logger.debug(f"truck_time_matrix {truck_time_matrix}")
     logger.debug(f"drone_time_matrix {drone_time_matrix}")
 
-    chromosome1 = [4, -3, 2, 5, -1]
+    chromosome1 = [4, -3, -2, 5, -1]
 
     optimal_route, makespan = join_algorithm(chromosome1, truck_time_matrix, drone_time_matrix, drone_range=float('inf'))
     logger.debug(optimal_route)
