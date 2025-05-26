@@ -1,6 +1,7 @@
 from loguru import logger
 import folium
 from folium.features import DivIcon
+from branca.element import Template, MacroElement
 import random
 import math
 import subprocess, pathlib
@@ -327,25 +328,6 @@ def visualize_route(places, route, dm_data):
     if truck_nodes[-1] != len(places) - 1:
         truck_nodes.append(len(places) - 1)
 
-    truck_points = [places[i] for i in truck_nodes]
-
-    # truck route
-    #folium.PolyLine(
-    #    truck_points,
-    #    color="blue",
-    #    weight=4,
-    #    tooltip="Truck path"
-    #).add_to(m)
-    # labels for truck route
-    #for a, b in zip(truck_nodes, truck_nodes[1:]):
-    #    folium.PolyLine(
-    #        [places[a], places[b]],
-    #        color="blue",
-    #        weight=4,
-    #        opacity=0,  # invisible line
-    #        tooltip=f"Truck {a}->{b}"
-    #    ).add_to(m)
-
     geom_dict = dm_data['waypoints_geometries']
 
     for a, b in zip(truck_nodes, truck_nodes[1:]):
@@ -357,8 +339,6 @@ def visualize_route(places, route, dm_data):
             weight=4,
             tooltip=f"Truck {a}→{b}"
         ).add_to(m)
-
-
 
     # drone route
     for action in route:
@@ -372,6 +352,58 @@ def visualize_route(places, route, dm_data):
                 dash_array="5,10",
                 tooltip=f"Drone {launch}->{deliver}->{land}"
             ).add_to(m)
+
+    # create legend with route
+    # truck-route in chronological order
+    truck_nodes = [0]  # депо
+    for act in route:
+        nxt = act[2] if act[0] == "MT" else act[3]  # MT: j  |  LL: k
+        if nxt != truck_nodes[-1]:  # remove duplicates
+            truck_nodes.append(nxt)
+    depot_ids = {0, len(places) - 1}
+    if truck_nodes[-1] not in depot_ids:
+        truck_nodes.append(0)
+
+    # drones: concatenate all "launch-deliver-land", remove consecutive-repetitions
+    drone_nodes = []
+
+    def _push(n):
+        if not drone_nodes or drone_nodes[-1] != n:
+            drone_nodes.append(n)
+
+    for act in route:
+        if act[0] == "LL":
+            _, launch, deliver, land, _ = act
+            _push(launch)
+            _push(deliver)
+            _push(land)
+
+    # HTML
+    truck_str = " → ".join("0" if n == n_last else str(n) for n in truck_nodes)
+    drone_str = " → ".join("0" if n == n_last else str(n) for n in drone_nodes)
+    legend_html = f"""
+        <div style="
+             position: fixed;
+             bottom: 30px; right: 30px;
+             z-index: 9999;
+             background: rgba(255,255,255,0.9);
+             padding: 10px 14px;
+             border: 2px solid #999;
+             border-radius: 6px;
+             box-shadow: 3px 3px 6px rgba(0,0,0,0.25);
+             font-size: 14px; line-height: 1.5;">
+          <b>Optimal route for given points:&nbsp;</b><br>
+          <span style="color:#0066ff; font-weight:600;">
+            Truck&nbsp;{truck_str}
+          </span><br>
+          <span style="color:#008800; font-weight:600;">
+            Drone&nbsp;{drone_str}
+          </span>
+        </div>"""
+
+    macro = MacroElement()
+    macro._template = Template(f"{{% macro html(this, kwargs) %}}{legend_html}{{% endmacro %}}")
+    m.get_root().add_child(macro)
 
     m.save("route_map.html")
     return True
