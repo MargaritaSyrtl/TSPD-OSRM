@@ -5,7 +5,18 @@ from branca.element import Template, MacroElement
 import random
 import math
 import subprocess, pathlib
-from DMRequest import DMRequest
+from DMRequest_google import DMRequest
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    api_key: str
+
+    class Config:
+        env_file = ".env"
+
+
+settings = Settings()
 
 
 def build_time_matrices_from_dm(places, drone_speed, dm_data):
@@ -333,11 +344,25 @@ def visualize_route(places, route, dm_data):
     for a, b in zip(truck_nodes, truck_nodes[1:]):
         key = frozenset([places[a], places[b]])
         path = geom_dict.get(key, [places[a], places[b]])
+        #folium.PolyLine(
+        #    path,
+        #    color="blue",
+        #    weight=4,
+        #    tooltip=f"Truck {a}→{b}"
+        #).add_to(m)
+
+        ratio = dm_data["waypoints_traffic"].get(key, 1.0)
+        if ratio < 1.1:
+            color = "green"
+        elif ratio < 1.5:
+            color = "orange"
+        else:
+            color = "red"
         folium.PolyLine(
             path,
-            color="blue",
+            color=color,
             weight=4,
-            tooltip=f"Truck {a}→{b}"
+            tooltip=f"Truck {a}→{b}, traffic ratio: {ratio:.2f}"
         ).add_to(m)
 
     # drone route
@@ -405,7 +430,7 @@ def visualize_route(places, route, dm_data):
     macro._template = Template(f"{{% macro html(this, kwargs) %}}{legend_html}{{% endmacro %}}")
     m.get_root().add_child(macro)
 
-    m.save("route_osrm.html")
+    m.save("route_google.html")
     return True
 
 
@@ -1065,7 +1090,7 @@ if __name__ == "__main__":
     lambda_value = 25
     population_size = mu_value + lambda_value
     ItNI = 2500
-    generations = 100
+    generations = 50
 
     # places = [(50.149, 8.666),  # idx=0 = 6
     #          (50.148, 8.616),  # idx=1
@@ -1089,7 +1114,7 @@ if __name__ == "__main__":
               ]
     n = len(places)  # without 0′
     logger.info(f"For {n} points.")
-    dm = DMRequest(places)
+    dm = DMRequest(places, settings.api_key)
     dm_data = dm.get_response_data_ga()
 
     # chrom, route, fitness = genetic_algorithm(places, drone_range, generations,
