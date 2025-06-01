@@ -1040,7 +1040,7 @@ if __name__ == "__main__":
     lambda_value = 25
     population_size = mu_value + lambda_value
     ItNI = 2500
-    generations = 1
+    generations = 100
 
     # places = [(50.149, 8.666),  # idx=0 = 6
     #          (50.148, 8.616),  # idx=1
