@@ -6,6 +6,7 @@ import random
 import math
 import subprocess, pathlib
 from DMRequest import DMRequest
+import time
 
 
 def build_time_matrices_from_dm(places, drone_speed, dm_data):
@@ -1053,6 +1054,8 @@ def generate_initial_population_from_tac(omega0, µ, truck_time, drone_time, dro
 
 
 if __name__ == "__main__":
+    start = time.time()
+
     truck_speed = 10  # m/s
     drone_speed = 2 * truck_speed
     drone_range = 3000  # m
@@ -1099,7 +1102,6 @@ if __name__ == "__main__":
 
     best_route = None
     best_fitness = float('inf')
-    best_total_time = 0
     list_of_fitnesses = []
     for i in range(0, 40):
         chrom, route, fitness, total_time = genetic_algorithm(places, drone_range, generations,
@@ -1110,14 +1112,15 @@ if __name__ == "__main__":
         if fitness < best_fitness:
             best_fitness = fitness
             best_route = route
-            best_total_time = total_time
             visualize_route(places, best_route, dm_data)
 
     # convert total time to hours with minuts and seconds
-    hours, remainder = divmod(best_total_time, 3600)
+    hours, remainder = divmod(best_fitness, 3600)
     minutes, seconds = divmod(remainder, 60)
     # hours, minutes – int; seconds not int
     time_str = f"{int(hours):02d}:{int(minutes):02d}:{seconds:06.2f}"
 
-    logger.debug(f"fitness: {best_fitness}, route {best_route}, again: {time_str}")
+    logger.debug(f"fitness: {best_fitness}, route {best_route}, time: {time_str}")
     logger.debug(f"list {list_of_fitnesses}")
+    end = time.time()
+    logger.info(f"Running time: {round(end - start, 4)}")

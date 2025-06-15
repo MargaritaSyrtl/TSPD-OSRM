@@ -7,7 +7,7 @@ import math
 import subprocess, pathlib
 from DMRequest_google import DMRequest
 from pydantic_settings import BaseSettings
-
+import time
 
 class Settings(BaseSettings):
     api_key: str
@@ -21,8 +21,8 @@ settings = Settings()
 
 def build_time_matrices_from_dm(places, drone_speed, dm_data):
     """
-    truck_time - from OSRM
-    drone_time - direkt flight
+    truck_time - from Google
+    drone_time - direct flight
     """
 
     distance_dict = dm_data['waypoints_distances']
@@ -463,7 +463,7 @@ def evaluate(chrom, truck_time, drone_time, drone_range):
     return cost, feas, route, total_time
 
 
-def tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range, k=2):
+def tournament_selection(population, fitnesses, truck_time_matrix, drone_time_matrix, drone_range, k=5):
     """ kTOURNAMENT individuals are randomly selected from the entire population
     and the best one is selected as the parent based on fitness"""
     # sort by fitness
@@ -1078,6 +1078,8 @@ def generate_initial_population_from_tac(omega0, µ, truck_time, drone_time, dro
 
 
 if __name__ == "__main__":
+    start = time.time()
+
     truck_speed = 10  # m/s
     drone_speed = 2 * truck_speed
     drone_range = 3000  # m
@@ -1090,7 +1092,7 @@ if __name__ == "__main__":
     lambda_value = 25
     population_size = mu_value + lambda_value
     ItNI = 2500
-    generations = 50
+    generations = 100
 
     # places = [(50.149, 8.666),  # idx=0 = 6
     #          (50.148, 8.616),  # idx=1
@@ -1124,7 +1126,6 @@ if __name__ == "__main__":
 
     best_route = None
     best_fitness = float('inf')
-    best_total_time = 0
     list_of_fitnesses = []
     for i in range(0, 40):
         chrom, route, fitness, total_time = genetic_algorithm(places, drone_range, generations,
@@ -1135,14 +1136,16 @@ if __name__ == "__main__":
         if fitness < best_fitness:
             best_fitness = fitness
             best_route = route
-            best_total_time = total_time
             visualize_route(places, best_route, dm_data)
 
-    # convert total time to hours with minuts and seconds
-    hours, remainder = divmod(best_total_time, 3600)
+    # convert total time to hours with minutes and seconds
+    hours, remainder = divmod(best_fitness, 3600)
     minutes, seconds = divmod(remainder, 60)
     # hours, minutes – int; seconds not int
     time_str = f"{int(hours):02d}:{int(minutes):02d}:{seconds:06.2f}"
 
-    logger.debug(f"fitness: {best_fitness}, route {best_route}, again: {time_str}")
-    logger.debug(f"list {list_of_fitnesses}")
+    logger.debug(f"fitness: {best_fitness}, route {best_route}, time: {time_str}")
+    logger.debug(f"list of fitnesses: {list_of_fitnesses}")
+    end = time.time()
+    logger.info(f"Running time: {round(end - start, 4)}")
+
