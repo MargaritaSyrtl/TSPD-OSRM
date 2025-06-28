@@ -291,7 +291,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
     return route, makespan, total_time
 
 
-def visualize_route(places, route, dm_data):
+def visualize_route(places, route, fitness, dm_data):
 
     places = places[:]  # copy
     places.append(places[0])
@@ -356,7 +356,7 @@ def visualize_route(places, route, dm_data):
 
     # create legend with route
     # truck-route in chronological order
-    truck_nodes = [0]  # депо
+    truck_nodes = [0]
     for act in route:
         nxt = act[2] if act[0] == "MT" else act[3]  # MT: j  |  LL: k
         if nxt != truck_nodes[-1]:  # remove duplicates
@@ -378,6 +378,14 @@ def visualize_route(places, route, dm_data):
             _push(launch)
             _push(deliver)
             _push(land)
+    # convert total time to hours with minutes and seconds
+    hours, remainder = divmod(fitness, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    # hours, minutes – int; seconds not int
+    if hours > 0:
+        time = f"{int(hours)}h:{int(minutes)}min"
+    else:
+        time = f"{int(minutes)}min"
 
     # HTML
     truck_str = " → ".join("0" if n == n_last else str(n) for n in truck_nodes)
@@ -393,12 +401,16 @@ def visualize_route(places, route, dm_data):
              border-radius: 6px;
              box-shadow: 3px 3px 6px rgba(0,0,0,0.25);
              font-size: 14px; line-height: 1.5;">
-          <b>Optimal route for given points:&nbsp;</b><br>
+          <b>Optimal route:&nbsp;</b><br>
           <span style="color:#0066ff; font-weight:600;">
-            Truck&nbsp;{truck_str}
+            Truck route: &nbsp;{truck_str}
           </span><br>
           <span style="color:#008800; font-weight:600;">
-            Drone&nbsp;{drone_str}
+            Drone route: &nbsp;{drone_str}
+          </span>
+          </span><br>
+          <span style="color:#000000; font-weight:600;">
+            Travel time: &nbsp;{time}
           </span>
         </div>"""
 
@@ -1112,13 +1124,13 @@ if __name__ == "__main__":
         if fitness < best_fitness:
             best_fitness = fitness
             best_route = route
-            visualize_route(places, best_route, dm_data)
+            visualize_route(places, best_route, best_fitness, dm_data)
 
     # convert total time to hours with minuts and seconds
     hours, remainder = divmod(best_fitness, 3600)
     minutes, seconds = divmod(remainder, 60)
     # hours, minutes – int; seconds not int
-    time_str = f"{int(hours):02d}:{int(minutes):02d}:{seconds:06.2f}"
+    time_str = f"{int(hours):02d}:{int(minutes):02d}"
 
     logger.debug(f"fitness: {best_fitness}, route {best_route}, time: {time_str}")
     logger.debug(f"list {list_of_fitnesses}")
