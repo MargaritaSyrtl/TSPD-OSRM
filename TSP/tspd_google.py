@@ -301,7 +301,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
     return route, makespan, total_time
 
 
-def visualize_route(places, route, dm_data):
+def visualize_route(places, route, fitness, dm_data):
 
     places = places[:]  # copy
     places.append(places[0])
@@ -353,11 +353,11 @@ def visualize_route(places, route, dm_data):
 
         ratio = dm_data["waypoints_traffic"].get(key, 1.0)
         if ratio < 1.1:
-            color = "green"
+            color = "green"  # green
         elif ratio < 1.5:
-            color = "orange"
+            color = "#FFC107"  # orange
         else:
-            color = "red"
+            color = "#E74C3C"  # red
         folium.PolyLine(
             path,
             color=color,
@@ -372,7 +372,7 @@ def visualize_route(places, route, dm_data):
             drone_points = [places[launch], places[deliver], places[land]]
             folium.PolyLine(
                 drone_points,
-                color="green",
+                color="#1E90FF",
                 weight=2.5,
                 dash_array="5,10",
                 tooltip=f"Drone {launch}->{deliver}->{land}"
@@ -380,7 +380,7 @@ def visualize_route(places, route, dm_data):
 
     # create legend with route
     # truck-route in chronological order
-    truck_nodes = [0]  # депо
+    truck_nodes = [0]
     for act in route:
         nxt = act[2] if act[0] == "MT" else act[3]  # MT: j  |  LL: k
         if nxt != truck_nodes[-1]:  # remove duplicates
@@ -403,6 +403,15 @@ def visualize_route(places, route, dm_data):
             _push(deliver)
             _push(land)
 
+    # convert total time to hours with minutes and seconds
+    hours, remainder = divmod(fitness, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    # hours, minutes – int; seconds not int
+    if hours > 0:
+        time = f"{int(hours)}h:{int(minutes)}min"
+    else:
+        time = f"{int(minutes)}min"
+
     # HTML
     truck_str = " → ".join("0" if n == n_last else str(n) for n in truck_nodes)
     drone_str = " → ".join("0" if n == n_last else str(n) for n in drone_nodes)
@@ -417,12 +426,15 @@ def visualize_route(places, route, dm_data):
              border-radius: 6px;
              box-shadow: 3px 3px 6px rgba(0,0,0,0.25);
              font-size: 14px; line-height: 1.5;">
-          <b>Optimal route for given points:&nbsp;</b><br>
-          <span style="color:#0066ff; font-weight:600;">
-            Truck&nbsp;{truck_str}
+          <b>Optimal route:&nbsp;</b><br>
+          <span style="color:#000000; font-weight:600;">
+            Truck route: &nbsp;{truck_str}
           </span><br>
-          <span style="color:#008800; font-weight:600;">
-            Drone&nbsp;{drone_str}
+          <span style="color:#000000; font-weight:600;">
+            Drone route: &nbsp;{drone_str}
+          </span><br>
+          <span style="color:#000000; font-weight:600;">
+            Travel time: &nbsp;{time}
           </span>
         </div>"""
 
@@ -1092,15 +1104,9 @@ if __name__ == "__main__":
     lambda_value = 25
     population_size = mu_value + lambda_value
     ItNI = 2500
-    generations = 100
-
-    # places = [(50.149, 8.666),  # idx=0 = 6
-    #          (50.148, 8.616),  # idx=1
-    #          (50.146, 8.777),  # idx=2
-    #          (50.160, 8.750),  # idx=3
-    #          (50.164, 8.668),  # idx=4
-    #          (50.130, 8.668),  # idx=5
-    #          ]
+    # controls the search depth of one GA run
+    # how many times it will generate and select new generations in an attempt to improve solutions
+    generations = 30
 
     places = [(50.08907396096527, 8.670714912636585),   # 0
               (50.12413060964201, 8.607552521857166),   # 1
@@ -1111,8 +1117,8 @@ if __name__ == "__main__":
               (50.139217216992726, 8.676705648840892),  # 6
               (50.121404901636176, 8.66130128708773),   # 7
               (50.102612763576104, 8.6767882194423),    # 8
-              (50.12705083884542, 8.692123319126726)    # 9
-
+              (50.12705083884542, 8.692123319126726),   # 9
+              (50.12705083884542, 8.692123319126726)    # 10
               ]
     n = len(places)  # without 0′
     logger.info(f"For {n} points.")
@@ -1127,6 +1133,8 @@ if __name__ == "__main__":
     best_route = None
     best_fitness = float('inf')
     list_of_fitnesses = []
+    # used to start the GA multiple times to increase the chances of finding a good solution,
+    # since the GA is stochastic (random) and with different initial populations it can come to different solutions
     for i in range(0, 40):
         chrom, route, fitness, total_time = genetic_algorithm(places, drone_range, generations,
                                                   population_size, mu_value, ItNI,
@@ -1136,16 +1144,16 @@ if __name__ == "__main__":
         if fitness < best_fitness:
             best_fitness = fitness
             best_route = route
-            visualize_route(places, best_route, dm_data)
+            visualize_route(places, best_route, best_fitness, dm_data)
 
     # convert total time to hours with minutes and seconds
     hours, remainder = divmod(best_fitness, 3600)
     minutes, seconds = divmod(remainder, 60)
     # hours, minutes – int; seconds not int
-    time_str = f"{int(hours):02d}:{int(minutes):02d}:{seconds:06.2f}"
+    time_str = f"{int(hours):02d}:{int(minutes):02d}"
 
     logger.debug(f"fitness: {best_fitness}, route {best_route}, time: {time_str}")
-    logger.debug(f"list of fitnesses: {list_of_fitnesses}")
+    logger.debug(f"list of fitness: {list_of_fitnesses}")
     end = time.time()
     logger.info(f"Running time: {round(end - start, 4)}")
 
