@@ -1103,10 +1103,10 @@ if __name__ == "__main__":
     mu_value = 15
     lambda_value = 25
     population_size = mu_value + lambda_value
-    ItNI = 2500
+    ItNI = 100
     # controls the search depth of one GA run
     # how many times it will generate and select new generations in an attempt to improve solutions
-    generations = 30
+    generations = 600
 
     places = [(50.08907396096527, 8.670714912636585),   # 0
               (50.12413060964201, 8.607552521857166),   # 1
@@ -1135,7 +1135,7 @@ if __name__ == "__main__":
     list_of_fitnesses = []
     # used to start the GA multiple times to increase the chances of finding a good solution,
     # since the GA is stochastic (random) and with different initial populations it can come to different solutions
-    for i in range(0, 40):
+    for i in range(0, 3):
         chrom, route, fitness, total_time = genetic_algorithm(places, drone_range, generations,
                                                   population_size, mu_value, ItNI,
                                                   truck_speed, drone_speed, dm_data)
@@ -1151,9 +1151,16 @@ if __name__ == "__main__":
     minutes, seconds = divmod(remainder, 60)
     # hours, minutes – int; seconds not int
     time_str = f"{int(hours):02d}:{int(minutes):02d}"
-
+    
     logger.debug(f"fitness: {best_fitness}, route {best_route}, time: {time_str}")
     logger.debug(f"list of fitness: {list_of_fitnesses}")
     end = time.time()
-    logger.info(f"Running time: {round(end - start, 4)}")
+    elapsed = int(end - start)
+    if elapsed < 60:
+        logger.info(f"Running time: {elapsed}sec")
+    else:
+        minutes = elapsed // 60
+        seconds = elapsed % 60
+        logger.info(f"Running time: {minutes}min {seconds}sec")
+
 

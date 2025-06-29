@@ -1079,8 +1079,8 @@ if __name__ == "__main__":
     mu_value = 15
     lambda_value = 25
     population_size = mu_value + lambda_value
-    ItNI = 2500
-    generations = 100
+    ItNI = 100
+    generations = 600
 
     # places = [(50.149, 8.666),  # idx=0 = 6
     #          (50.148, 8.616),  # idx=1
@@ -1115,7 +1115,7 @@ if __name__ == "__main__":
     best_route = None
     best_fitness = float('inf')
     list_of_fitnesses = []
-    for i in range(0, 40):
+    for i in range(0, 3):
         chrom, route, fitness, total_time = genetic_algorithm(places, drone_range, generations,
                                                   population_size, mu_value, ItNI,
                                                   truck_speed, drone_speed, dm_data)
@@ -1126,7 +1126,7 @@ if __name__ == "__main__":
             best_route = route
             visualize_route(places, best_route, best_fitness, dm_data)
 
-    # convert total time to hours with minuts and seconds
+    # convert total time to hours with minutes
     hours, remainder = divmod(best_fitness, 3600)
     minutes, seconds = divmod(remainder, 60)
     # hours, minutes – int; seconds not int
@@ -1135,4 +1135,10 @@ if __name__ == "__main__":
     logger.debug(f"fitness: {best_fitness}, route {best_route}, time: {time_str}")
     logger.debug(f"list {list_of_fitnesses}")
     end = time.time()
-    logger.info(f"Running time: {round(end - start, 4)}")
+    elapsed = int(end - start)
+    if elapsed < 60:
+        logger.info(f"Running time: {elapsed}sec")
+    else:
+        minutes = elapsed // 60
+        seconds = elapsed % 60
+        logger.info(f"Running time: {minutes}min {seconds}sec")
