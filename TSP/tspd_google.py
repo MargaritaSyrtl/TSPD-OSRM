@@ -9,6 +9,7 @@ from DMRequest_google import DMRequest
 from pydantic_settings import BaseSettings
 import time
 
+
 class Settings(BaseSettings):
     api_key: str
 
@@ -25,7 +26,8 @@ def build_time_matrices_from_dm(places, drone_speed, dm_data):
     drone_time - direct flight
     """
 
-    distance_dict = dm_data['waypoints_distances']
+    # distance_dict = dm_data['waypoints_distances']
+    duration_dict = dm_data["waypoints_durations"]
     n = len(places) - 1
     truck_time = [[0] * (n + 2) for _ in range(n + 2)]
     drone_time = [[0] * (n + 2) for _ in range(n + 2)]
@@ -35,9 +37,10 @@ def build_time_matrices_from_dm(places, drone_speed, dm_data):
             dist = euclidean_distance(places[i], places[j])
             drone_time[i][j] = dist / drone_speed
             key = frozenset([places[i], places[j]])  # coordinates
-            road_dist = distance_dict.get(key)  # meters
-            if road_dist is not None:
-                truck_time[i][j] = road_dist / truck_speed
+            # road_dist = distance_dict.get(key)  # meters
+            road_duration = duration_dict.get(key)  # seconds
+            if road_duration is not None:
+                truck_time[i][j] = road_duration
             else:
                 truck_time[i][j] = float('inf')
 
@@ -301,7 +304,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
     return route, makespan, total_time
 
 
-def visualize_route(places, route, fitness, dm_data):
+def visualize_route(places, route, fitness, dm_data, file_name):
 
     places = places[:]  # copy
     places.append(places[0])
@@ -361,7 +364,7 @@ def visualize_route(places, route, fitness, dm_data):
         folium.PolyLine(
             path,
             color=color,
-            weight=4,
+            weight=5,
             tooltip=f"Truck {a}→{b}, traffic ratio: {ratio:.2f}"
         ).add_to(m)
 
@@ -374,7 +377,7 @@ def visualize_route(places, route, fitness, dm_data):
                 drone_points,
                 color="#1E90FF",
                 weight=2.5,
-                dash_array="5,10",
+                dash_array="6 8",
                 tooltip=f"Drone {launch}->{deliver}->{land}"
             ).add_to(m)
 
@@ -442,7 +445,8 @@ def visualize_route(places, route, fitness, dm_data):
     macro._template = Template(f"{{% macro html(this, kwargs) %}}{legend_html}{{% endmacro %}}")
     m.get_root().add_child(macro)
 
-    m.save("route_google.html")
+    m.save(file_name)
+    # m.save("route_google.html")
     return True
 
 
@@ -886,8 +890,8 @@ def genetic_algorithm(places, drone_range, generations, population_size, mu_valu
 
                 feasible_pop.append((child, fitness))
                 logger.debug(f"fitness: {fitness}, route: {route}")
-                # save the best solutions
-                if fitness < best_fitness:
+                # save the best solutions (only if feasible)
+                if feasible == 0 and fitness < best_fitness:
                     best_fitness = fitness
                     best_solution = child
                     best_route = route
@@ -1093,8 +1097,11 @@ if __name__ == "__main__":
     start = time.time()
 
     truck_speed = 10  # m/s
-    drone_speed = 2 * truck_speed
-    drone_range = 3000  # m
+    # drone_speed = 2 * truck_speed
+    drone_speed = 19
+    # maximum flight time of one drone on one delivery, in seconds.
+    drone_range = 1530  # sec  TODO
+
     # parameters:
     # mu_value - min size of each subpop = 15
     # lambda_value -  "offspring pool" (added on top of µ before "survivor selection") = 25
@@ -1108,16 +1115,16 @@ if __name__ == "__main__":
     # how many times it will generate and select new generations in an attempt to improve solutions
     generations = 600
 
-    places = [(50.08907396096527, 8.670714912636585),   # 0
-              (50.12413060964201, 8.607552521857166),   # 1
-              (50.13104153062146, 8.716872044360008),   # 2
-              (50.10572906849683, 8.757866865298572),   # 3
+    places = [(50.102612763576104, 8.6767882194423),   # 0
+              (50.113286876522274, 8.634967445208249),   # 1
+              (50.128839408876594, 8.707983296827313),   # 2
+              (50.105204457806856, 8.699310817523104),   # 3
               (50.114456044438604, 8.675334053958041),  # 4
-              (50.10392126972894, 8.631731759275732),   # 5
-              (50.139217216992726, 8.676705648840892),  # 6
-              (50.121404901636176, 8.66130128708773),   # 7
-              (50.102612763576104, 8.6767882194423),    # 8
-              (50.12705083884542, 8.692123319126726),   # 9
+              (50.10565287747025, 8.649463409340001),   # 5
+              (50.13006667126972, 8.670824312557157),  # 6
+              (50.100443197884076, 8.640219468293497),   # 7
+              (50.0954917288758, 8.663549712315696),    # 8
+              (50.09725213239693, 8.687014842786096),   # 9
               (50.12205053664542, 8.702123319126726)    # 10
               ]
     n = len(places)  # without 0′
@@ -1135,24 +1142,27 @@ if __name__ == "__main__":
     list_of_fitnesses = []
     # used to start the GA multiple times to increase the chances of finding a good solution,
     # since the GA is stochastic (random) and with different initial populations it can come to different solutions
+    file_name = ""
     for i in range(0, 3):
         chrom, route, fitness, total_time = genetic_algorithm(places, drone_range, generations,
                                                   population_size, mu_value, ItNI,
                                                   truck_speed, drone_speed, dm_data)
-        logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
+        # logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
         list_of_fitnesses.append(fitness)
         if fitness < best_fitness:
             best_fitness = fitness
             best_route = route
-            visualize_route(places, best_route, best_fitness, dm_data)
+            file_name = f"opt_route_google_attempt={i}.html"
+            visualize_route(places, best_route, best_fitness, dm_data, file_name)
 
     # convert total time to hours with minutes and seconds
     hours, remainder = divmod(best_fitness, 3600)
     minutes, seconds = divmod(remainder, 60)
     # hours, minutes – int; seconds not int
     time_str = f"{int(hours):02d}:{int(minutes):02d}"
-    
-    logger.debug(f"fitness: {best_fitness}, route {best_route}, time: {time_str}")
+
+    logger.debug(f"Best fitness: {best_fitness}, best route {best_route}, best time: {time_str}")
+    logger.debug(f"Saved in {file_name}")
     logger.debug(f"list of fitness: {list_of_fitnesses}")
     end = time.time()
     elapsed = int(end - start)
@@ -1163,4 +1173,6 @@ if __name__ == "__main__":
         seconds = elapsed % 60
         logger.info(f"Running time: {minutes}min {seconds}sec")
 
-
+    # logger.debug(f"0-3 {euclidean_distance((50.08907396096527, 8.670714912636585), (50.10572906849683, 8.757866865298572))}")
+    # logger.debug(f"3-4 {euclidean_distance((50.10572906849683, 8.757866865298572), (50.114456044438604, 8.675334053958041))}")
+    # logger.debug(f"0-5 {euclidean_distance((50.08907396096527, 8.670714912636585), (50.10392126972894, 8.631731759275732))}")
