@@ -888,7 +888,7 @@ def genetic_algorithm(places, drone_range, generations, population_size, mu_valu
                 feasible_pop.append((child, fitness))
                 logger.debug(f"fitness: {fitness}, route: {route}")
                 # save the best solutions
-                if fitness < best_fitness:
+                if feasible == 0 and fitness < best_fitness:
                     best_fitness = fitness
                     best_solution = child
                     best_route = route
