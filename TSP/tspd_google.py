@@ -301,7 +301,7 @@ def join_algorithm(chromosome, truck_time, drone_time, drone_range):
     return route, makespan, total_time
 
 
-def visualize_route(places, route, fitness, dm_data):
+def visualize_route(places, route, fitness, dm_data, file_name):
 
     places = places[:]  # copy
     places.append(places[0])
@@ -442,7 +442,8 @@ def visualize_route(places, route, fitness, dm_data):
     macro._template = Template(f"{{% macro html(this, kwargs) %}}{legend_html}{{% endmacro %}}")
     m.get_root().add_child(macro)
 
-    m.save("route_google.html")
+    # m.save("route_google.html")
+    m.save(file_name)
     return True
 
 
@@ -1094,7 +1095,7 @@ if __name__ == "__main__":
 
     truck_speed = 10  # m/s
     drone_speed = 2 * truck_speed
-    drone_range = 3000  # m
+    drone_range = 1530  # s = 25,5 min
     # parameters:
     # mu_value - min size of each subpop = 15
     # lambda_value -  "offspring pool" (added on top of µ before "survivor selection") = 25
@@ -1133,18 +1134,20 @@ if __name__ == "__main__":
     best_route = None
     best_fitness = float('inf')
     list_of_fitnesses = []
+    file_name = "opt_route_google_attempt=0.html"
     # used to start the GA multiple times to increase the chances of finding a good solution,
     # since the GA is stochastic (random) and with different initial populations it can come to different solutions
     for i in range(0, 3):
         chrom, route, fitness, total_time = genetic_algorithm(places, drone_range, generations,
                                                   population_size, mu_value, ItNI,
                                                   truck_speed, drone_speed, dm_data)
-        logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
+        # logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
         list_of_fitnesses.append(fitness)
         if fitness < best_fitness:
             best_fitness = fitness
             best_route = route
-            visualize_route(places, best_route, best_fitness, dm_data)
+            file_name = f"opt_route_google_attempt={i}.html"
+            visualize_route(places, best_route, best_fitness, dm_data, file_name)
 
     # convert total time to hours with minutes and seconds
     hours, remainder = divmod(best_fitness, 3600)
@@ -1152,8 +1155,9 @@ if __name__ == "__main__":
     # hours, minutes – int; seconds not int
     time_str = f"{int(hours):02d}:{int(minutes):02d}"
     
-    logger.debug(f"fitness: {best_fitness}, route {best_route}, time: {time_str}")
+    logger.debug(f"Best fitness: {best_fitness}, best route {best_route}, best time: {time_str}")
     logger.debug(f"list of fitness: {list_of_fitnesses}")
+    logger.debug(f"Saved in {file_name}")
     end = time.time()
     elapsed = int(end - start)
     if elapsed < 60:
