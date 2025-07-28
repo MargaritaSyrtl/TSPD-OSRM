@@ -751,7 +751,6 @@ def repair(chromosome, truck_time, drone_time, drone_range, p_repair=0.5):
     # violating drone nodes
     violating_nodes = set()
     prev_action = None
-
     for action in route:
         if action[0] == 'LL':
             _, launch, deliver, land, duration = action
@@ -763,12 +762,11 @@ def repair(chromosome, truck_time, drone_time, drone_range, p_repair=0.5):
                 # two consecutive drone nodes
                 violating_nodes.add(deliver)
         prev_action = action
-
     # repair with probability p_repair
     # repair always!
     for i, g in enumerate(chrom):
         if abs(g) in violating_nodes and g < 0:
-            # if random.random() < p_repair:
+            # if random.random() < p_repair:  # todo
             chrom[i] = abs(g)
     logger.debug(f"repaired chromosome: {chromosome}")
     return chrom
@@ -920,6 +918,9 @@ def genetic_algorithm(places, drone_range, generations, population_size, mu_valu
 
 
 def run_lkh(par_file, exe_path="./LKH"):
+    """ Runs the LKH program.
+        Returns the constructed tour."""
+
     proc = subprocess.run([exe_path, par_file],
                           stdout=subprocess.PIPE,
                           text=True, check=True)
@@ -930,7 +931,8 @@ def run_lkh(par_file, exe_path="./LKH"):
 
 def read_tour(tour_file):
     """
-    Reads SECTION in form:
+    Reads the path from the tour file created by LKH.
+    In form:
     TOUR_SECTION
     1 4 3 2 5 6 0
     -1
@@ -942,11 +944,16 @@ def read_tour(tour_file):
     for s in lines[start:]:
         v = int(s.split()[0])
         if v == -1: break
-        seq.append(v - 1)  # TSPLIB numbers from 1
+        seq.append(v - 1)  # LKH numbers nodes from 1, Python - from 0
     return seq
 
 
 def write_par(tsp_file, par_file="problem.par", runs=10, time_limit=30):
+    """ tsp_file: path to .tsp file to solve
+        par_file: where to write the solution
+        runs: how many times LKH will run local search (to diversify solutions)
+        time_limit: time limit for solving (in seconds)"""
+
     txt = f"""PROBLEM_FILE = {tsp_file}
 OUTPUT_TOUR_FILE = result.tour
 RUNS = {runs}
@@ -971,6 +978,7 @@ def haversine(a, b):
 
 
 def write_tsplib(coords, name="demo", fname="demo.tsp"):
+    """Generates .tsp file that contains the coordinates and the distance matrix between them"""
     n = len(coords)
     lines = [
         f"NAME : {name}",
@@ -1063,8 +1071,8 @@ def classify(route, fitness, drone_range, chrom):
 
 def generate_initial_population_from_tac(omega0, µ, truck_time, drone_time, drone_range):
     """
-    Forms three subpopulations Ωᶠ, Ω¹_inf, Ω²_inf (feasible, Type 1, Type 2).
-    First compute ω₀, then "modifies" existing chromosomes until each subpopulation contains µ individuals.
+    Forms three subpopulations feasible, Type 1, Type 2.
+    First compute w0, then "modifies" existing chromosomes until each subpopulation contains µ individuals.
     Returns subpops: {0:[(chrom,cost), ...], 1:[...], 2:[...]}"""
     subpops = {0: [], 1: [], 2: []}
 
@@ -1094,8 +1102,10 @@ if __name__ == "__main__":
     start = time.time()
 
     truck_speed = 10  # m/s
-    drone_speed = 2 * truck_speed
+    drone_speed = 2 * truck_speed  # 19?
     drone_range = 1530  # s = 25,5 min
+    # drone_range = 3000
+
     # parameters:
     # mu_value - min size of each subpop = 15
     # lambda_value -  "offspring pool" (added on top of µ before "survivor selection") = 25
@@ -1133,21 +1143,26 @@ if __name__ == "__main__":
 
     best_route = None
     best_fitness = float('inf')
+    best_chrom = []
     list_of_fitnesses = []
     file_name = "opt_route_google_attempt=0.html"
     # used to start the GA multiple times to increase the chances of finding a good solution,
     # since the GA is stochastic (random) and with different initial populations it can come to different solutions
-    for i in range(0, 3):
-        chrom, route, fitness, total_time = genetic_algorithm(places, drone_range, generations,
+    with open("resulting_values.txt", "w") as f:
+        for i in range(0, 3):
+            chrom, route, fitness, total_time = genetic_algorithm(places, drone_range, generations,
                                                   population_size, mu_value, ItNI,
                                                   truck_speed, drone_speed, dm_data)
-        # logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
-        list_of_fitnesses.append(fitness)
-        if fitness < best_fitness:
-            best_fitness = fitness
-            best_route = route
-            file_name = f"opt_route_google_attempt={i}.html"
-            visualize_route(places, best_route, best_fitness, dm_data, file_name)
+            # logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
+            list_of_fitnesses.append(fitness)
+            if fitness < best_fitness:
+                best_fitness = fitness
+                best_route = route
+                best_chrom = chrom
+                file_name = f"opt_route_google_attempt={i}.html"
+                visualize_route(places, best_route, best_fitness, dm_data, file_name)
+
+            f.write(f"run={i}\nchrom: {best_chrom}\nroute: {best_route}\nmakespan: {best_fitness}\n")
 
     # convert total time to hours with minutes and seconds
     hours, remainder = divmod(best_fitness, 3600)
