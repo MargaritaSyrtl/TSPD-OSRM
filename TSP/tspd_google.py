@@ -32,7 +32,7 @@ def build_time_matrices_from_dm(places, drone_speed, dm_data):
 
     for i in range(n + 1):
         for j in range(n + 1):
-            dist = euclidean_distance(places[i], places[j])
+            dist = haversine_distance(places[i], places[j])
             drone_time[i][j] = dist / drone_speed
             key = frozenset([places[i], places[j]])  # coordinates
             road_dist = distance_dict.get(key)  # meters
@@ -44,9 +44,9 @@ def build_time_matrices_from_dm(places, drone_speed, dm_data):
     return truck_time, drone_time
 
 
-def euclidean_distance(coord1, coord2):
+def haversine_distance(coord1, coord2):
     """
-    Calculates the approximate Euclidean distance between two coordinates (lat, lon) in meters.
+    Calculates the approximate haversine  distance between two coordinates (lat, lon) in meters.
     Uses simple approximation assuming flat Earth for small distances.
     """
     lat1, lon1 = map(float, coord1)
@@ -795,15 +795,6 @@ def genetic_algorithm(places, drone_range, generations, population_size, mu_valu
         logger.info(f"For {n} points.")
         logger.info(f"{places}")
 
-
-#        # init time matrix
-#        truck_time_matrix = [[0] * (n + 2) for _ in range(n + 2)]
-#        drone_time_matrix = [[0] * (n + 2) for _ in range(n + 2)]
-#        for i in range(n + 1):
-#            for j in range(n + 1):
-#                dist = euclidean_distance(places[i], places[j])
-#                truck_time_matrix[i][j] = dist / truck_speed
-#                drone_time_matrix[i][j] = dist / drone_speed
         truck_time_matrix, drone_time_matrix = build_time_matrices_from_dm(places, drone_speed, dm_data)
 
         # form ω0
@@ -1102,7 +1093,7 @@ if __name__ == "__main__":
     start = time.time()
 
     truck_speed = 10  # m/s
-    drone_speed = 2 * truck_speed  # 19?
+    drone_speed = 2 * truck_speed
     drone_range = 1530  # s = 25,5 min
     # drone_range = 3000
 
@@ -1136,11 +1127,6 @@ if __name__ == "__main__":
     dm = DMRequest(places, settings.api_key)
     dm_data = dm.get_response_data_ga()
 
-    # chrom, route, fitness = genetic_algorithm(places, drone_range, generations,
-    # population_size, mu_value, ItNI truck_speed, drone_speed)
-    # logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
-    # visualize_route(places, route)
-
     best_route = None
     best_fitness = float('inf')
     best_chrom = []
@@ -1153,7 +1139,6 @@ if __name__ == "__main__":
             chrom, route, fitness, total_time = genetic_algorithm(places, drone_range, generations,
                                                   population_size, mu_value, ItNI,
                                                   truck_speed, drone_speed, dm_data)
-            # logger.info(f"Finally: chrom={chrom}, route={route}, fitness={fitness}")
             list_of_fitnesses.append(fitness)
             if fitness < best_fitness:
                 best_fitness = fitness
